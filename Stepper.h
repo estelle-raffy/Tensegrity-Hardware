@@ -106,7 +106,7 @@ class Stepper_c {
 
         // When should the robot decide it is "close enough"
         // and stop?
-        float movement_threshold = 2;
+        float movement_threshold = 5;
         if (  abs(error) < movement_threshold ) {
           // stop moving
         } else if ( error > 0 ) {
@@ -136,9 +136,9 @@ class Stepper_c {
       // we just toggle the step pin high
       // then low.
       digitalWrite(step_pin, HIGH);
-      delay(25);
+      delay(50);
       digitalWrite(step_pin, LOW);
-      delay(25);
+      delay(50);
     }
 
     void moveUp() {
@@ -148,9 +148,9 @@ class Stepper_c {
       // we just toggle the step pin high
       // then low.
       digitalWrite(step_pin, HIGH);
-      delay(25);
+      delay(50);
       digitalWrite(step_pin, LOW);
-      delay(25);
+      delay(50);
     }
 
     void moveStepsDown( int steps_to_move ) {
@@ -201,9 +201,10 @@ class Stepper_c {
       // THerefore we move the motor down
       while (endStopState == 1) {
         endStopState = digitalRead(end_stop_pin);
+        Serial.println(endStopState);
 
         if ( DEBUG ) Serial.println("Moving down");
-        moveDown();
+        moveUp();
 
       }
 
