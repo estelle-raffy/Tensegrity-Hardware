@@ -64,11 +64,11 @@ void setup() {
   // reading by taking a set of readings from the
   // stretch cables.
   // Set low pass filter to 0 initially.
-  module3.lpf = 0.0;
+  module3.lpf = module3.analog_read_resistance();
   // Set low pass filter to 0 initially.
-  module2.lpf = 0.0;
+  module2.lpf = module2.analog_read_resistance();
   // Set low pass filter to 0 initially.
-  module1.lpf = 0.0;
+  module1.lpf = module1.analog_read_resistance();
   for ( int i = 0; i < 50; i++ ) {
     module1.updateLPF();
     module2.updateLPF();
@@ -107,7 +107,18 @@ void loop() {
     else if (cmd == '3') {
       d_mod = 0;
     }
+    else if (cmd == 's'){
+      module1.motorStarted = true;
+      module2.motorStarted = true;
+      module3.motorStarted = true;
+    }
+    else if (cmd == 'q'){
+      module1.motorStarted = false;
+      module2.motorStarted = false;
+      module3.motorStarted = false;
+    }
   }
+  
   //error-reducing
   Serial.println("MODULE 1");
   module1.errorReducing(module1.getDemand() + d_mod ); //------------------------> function in class
