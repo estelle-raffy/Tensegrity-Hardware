@@ -19,18 +19,22 @@ class Stepper_c {
     // ----------------------------------------------------> for the error reducing function
     long motor_update_ts;
     float lpf;
-    float demand; 
+    float demand;
+    bool motorStarted = false;
+    bool pinState = false;
+    unsigned long pinState_ts; // time elasped since last change
+    unsigned long pinState_ms = 10; // time between pin state changes/steppings
 
     // Constructor
     Stepper_c() {
-      demand = 0,0; // initializes the demand to default value 
+      demand = 0.0; // initializes the demand to default value
     }
 
-    float getDemand(){
+    float getDemand() {
       return demand; // returns the value of demand variable to allow other parts of the program
-                     // to access demand within the class instance 
+      // to access demand within the class instance
     }
-    
+
     int readDirPin() {
       return digitalRead( dir_pin );
       //return value;
@@ -88,74 +92,68 @@ class Stepper_c {
 
     }
 
-    void errorReducing( float demand ) {
-
-
-      updateLPF();
-
-
-
-      // has the lpf removed the noise seen in measurement?
-      //  Serial.print( measurement );
-      //  Serial.print(",");
-      //  Serial.println( lpf );
-
+    void errorReducing( float demand ) { //************************************************************ error reducing function
 
       /******************** 50ms *********************/
-      long elapsed_time = millis() - motor_update_ts;
-      if ( elapsed_time > 10 ) {      // has 50ms passed?
-        motor_update_ts = millis();
+
+      if (motorStarted) {
+
+        updateLPF();
+
+        long elapsed_time = millis() - motor_update_ts;
+        if ( elapsed_time > 10 ) {      // has 50ms passed?
+          motor_update_ts = millis();
 
 
-        float error = (lpf - demand );
+          float error = (lpf - demand );
 
-        // When should the robot decide it is "close enough"
-        // and stop?
-        float movement_threshold = 5;
-        if (  abs(error) < movement_threshold ) {
-          // stop moving
-        } else if ( error > 0 ) {
-          moveUp();
-        } else {
-          moveDown();
+          // When should the robot decide it is "close enough"
+          // and stop?
+          float movement_threshold = 5;
+          if (  abs(error) < movement_threshold ) {
+            // stop moving
+          } else if ( error > 0 ) {
+            moveUp();
+          } else {
+            moveDown();
+          }
+
+          if ( DEBUG ) Serial.print( (error  ) );
+          Serial.print( lpf );
+          Serial.print(",");
+          Serial.print(demand);
+          Serial.print(",");
+          Serial.print(error);
+          if ( DEBUG ) Serial.print("\n");
         }
 
-        if ( DEBUG ) Serial.print( (error  ) );
-        Serial.print( lpf );
-        Serial.print(",");
-        Serial.print(demand);
-        Serial.print(",");
-        Serial.print(error);
-        if ( DEBUG ) Serial.print("\n");
       }
-
     }
+    //*********************************************************************************************** end of error reducing function
 
-    void moveDown() {
+    bool moveDown() {
 
       if ( DEBUG ) Serial.println("Doing step");
 
       digitalWrite(dir_pin, HIGH);
-
-      // TO make the motor move one step
-      // we just toggle the step pin high
-      // then low.
-      digitalWrite(step_pin, HIGH);
-      delay(50);
-      digitalWrite(step_pin, LOW);
-      delay(50);
+      if (millis () - pinState_ts > pinState_ms) {
+        pinState_ts = millis();
+        pinState = ! pinState;
+        digitalWrite(step_pin, pinState);
+        return true;
+      }
+      return false;
     }
 
-    void moveUp() {
+    bool moveUp() {
       digitalWrite(dir_pin, LOW);
-
-      // TO make the motor move one step
-      // we just toggle the step pin high
-      // then low.
-      digitalWrite(step_pin, HIGH);
-      delay(50);
-      digitalWrite(step_pin, LOW);
-      delay(50);
+      if (millis () - pinState_ts > pinState_ms) {
+        pinState_ts = millis();
+        pinState = ! pinState;
+        digitalWrite(step_pin, pinState);
+        return true;
+      }
+      return false;
     }
 
     void moveStepsDown( int steps_to_move ) {
@@ -167,11 +165,10 @@ class Stepper_c {
 
       // Otherwise, move by the requested amount
       while ( step_count < steps_to_move ) {
-        moveDown();
-        delay(25);
-        step_count++;
+        if (moveDown()) {
+          step_count++;
+        }
       }
-
     }
 
 
@@ -184,11 +181,10 @@ class Stepper_c {
 
       // Otherwise, move by the requested amount
       while ( step_count < steps_to_move ) {
-        moveUp();
-        delay(25);
-        step_count++;
+        if (moveUp()) {
+          step_count++;
+        }
       }
-
     }
 
     void homeToSwitch() {// homing
@@ -206,7 +202,7 @@ class Stepper_c {
       // THerefore we move the motor down
       while (endStopState == 1) {
         endStopState = digitalRead(end_stop_pin);
-        Serial.println(endStopState);
+        //Serial.println(endStopState);
 
         if ( DEBUG ) Serial.println("Moving down");
         moveUp();
@@ -214,22 +210,37 @@ class Stepper_c {
       }
 
     }
-//---------------------------------------------------------------new function------------------------
+    //---------------------------------------------------------------new function------------------------
     float calibrate () {
 
       homeToSwitch();
-      delay(5);
-      int measurement1 = analog_read_resistance ( );
-      moveStepsDown(300);
-      delay(5);
-      int measurement2 = analog_read_resistance ( );
+      delay(100);
+      lpf = analog_read_resistance();
+      for (int i = 0; i < 50; i++) {
+        updateLPF();
+        delay(5);
+      }
+      int measurement1 = lpf; //analog_read_resistance ( );
+      Serial.println("Measurement1: ");
+      Serial.println(measurement1);
+      moveStepsDown(600);
+      delay(100);
+      lpf = analog_read_resistance();
+      for (int i = 0; i < 50; i++) {
+        updateLPF();
+        delay(5);
+      }
+      int measurement2 = lpf; //analog_read_resistance ( );
+      Serial.println("Measurement2: ");
+      Serial.println(measurement2);
       demand = (measurement1 + measurement2) / 2;
       homeToSwitch();
 
       return demand;
 
     }
-//---------------------------------------------------------------new function------------------------
+    //---------------------------------------------------------------new function------------------------
+
   private:
 
 };
