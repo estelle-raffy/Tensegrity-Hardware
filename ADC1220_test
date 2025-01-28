@@ -1,0 +1,172 @@
+#include "Protocentral_ADS1220.h"
+#include <SPI.h>
+
+#define PGA          1                 // Programmable Gain = 1
+#define VREF         2.048            // Internal reference of 2.048V
+#define VFSR         VREF/PGA
+#define FULL_SCALE   (((long int)1<<23)-1)
+
+#define ADS1220_1_CS_PIN    4
+#define ADS1220_1_DRDY_PIN  2
+
+#define ADS1220_2_CS_PIN    5
+#define ADS1220_2_DRDY_PIN  3
+
+#define ADS1220_3_CS_PIN    17
+#define ADS1220_3_DRDY_PIN  18
+
+#define ADS1220_4_CS_PIN    16
+#define ADS1220_4_DRDY_PIN  19
+
+#define ADS1220_5_CS_PIN    15
+#define ADS1220_5_DRDY_PIN  20
+
+#define ADS1220_6_CS_PIN    14
+#define ADS1220_6_DRDY_PIN  21
+
+Protocentral_ADS1220 pc_ads1220_1;
+Protocentral_ADS1220 pc_ads1220_2;
+Protocentral_ADS1220 pc_ads1220_3;
+Protocentral_ADS1220 pc_ads1220_4;
+Protocentral_ADS1220 pc_ads1220_5;
+Protocentral_ADS1220 pc_ads1220_6;
+
+// Store channel keywords in an array so we can
+// use a loop to check each channel easily
+int channel[4] = { MUX_SE_CH0, MUX_SE_CH1, MUX_SE_CH2, MUX_SE_CH3 };
+
+int32_t adc_data;
+volatile bool drdyIntrFlag = false;
+
+void drdyInterruptHndlr() {
+  drdyIntrFlag = true;
+}
+
+void enableInterruptPin() {
+
+  attachInterrupt(digitalPinToInterrupt(ADS1220_1_DRDY_PIN), drdyInterruptHndlr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ADS1220_2_DRDY_PIN), drdyInterruptHndlr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ADS1220_3_DRDY_PIN), drdyInterruptHndlr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ADS1220_4_DRDY_PIN), drdyInterruptHndlr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ADS1220_5_DRDY_PIN), drdyInterruptHndlr, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ADS1220_6_DRDY_PIN), drdyInterruptHndlr, FALLING);
+}
+
+void setup()
+{
+  Serial.begin(9600);
+
+  pc_ads1220_1.begin(ADS1220_1_CS_PIN, ADS1220_1_DRDY_PIN);
+  pc_ads1220_1.set_data_rate(DR_330SPS);
+  pc_ads1220_1.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_1.set_conv_mode_single_shot(); //Set Single shot mode
+
+  pc_ads1220_2.begin(ADS1220_2_CS_PIN, ADS1220_2_DRDY_PIN);
+  pc_ads1220_2.set_data_rate(DR_330SPS);
+  pc_ads1220_2.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_2.set_conv_mode_single_shot(); //Set Single shot mode
+
+  pc_ads1220_3.begin(ADS1220_3_CS_PIN, ADS1220_3_DRDY_PIN);
+  pc_ads1220_3.set_data_rate(DR_330SPS);
+  pc_ads1220_3.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_3.set_conv_mode_single_shot(); //Set Single shot mode
+
+  pc_ads1220_4.begin(ADS1220_4_CS_PIN, ADS1220_4_DRDY_PIN);
+  pc_ads1220_4.set_data_rate(DR_330SPS);
+  pc_ads1220_4.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_4.set_conv_mode_single_shot(); //Set Single shot mode
+
+  pc_ads1220_5.begin(ADS1220_5_CS_PIN, ADS1220_5_DRDY_PIN);
+  pc_ads1220_5.set_data_rate(DR_330SPS);
+  pc_ads1220_5.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_5.set_conv_mode_single_shot(); //Set Single shot mode
+
+  pc_ads1220_6.begin(ADS1220_6_CS_PIN, ADS1220_6_DRDY_PIN);
+  pc_ads1220_6.set_data_rate(DR_330SPS);
+  pc_ads1220_6.set_pga_gain(PGA_GAIN_1);
+
+  pc_ads1220_6.set_conv_mode_single_shot(); //Set Single shot mode
+}
+
+void loop()
+{
+  //  adc_data = pc_ads1220_1.Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+  ////  Serial.print("ADC1 Ch0 (mV): ");
+  //  Serial.print(convertToMilliV(adc_data));
+  //  delay(10); // ADC1 channel 0 detects on its own
+  //
+  //  adc_data = pc_ads1220_2.Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+  //  Serial.print(",");
+  ////  Serial.print("ADC2 Ch0 (mV): ");
+  //  Serial.print(convertToMilliV(adc_data));
+  //  delay(10); //ADC2 channel 0 detects on its own
+  //
+  //  adc_data = pc_ads1220_3.Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+  //  Serial.print(",");
+  ////  Serial.print("ADC3 Ch0 (mV): ");
+  //  Serial.print(convertToMilliV(adc_data));
+  //  delay(10);
+  //
+  //  adc_data = pc_ads1220_4.Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+  //  Serial.print(",");
+  ////  Serial.print("ADC4 Ch0 (mV): ");
+  //  Serial.print(convertToMilliV(adc_data));
+  //  delay(10);
+  //
+  //  adc_data = pc_ads1220_5.Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+  //  Serial.print(",");
+  ////  Serial.print("ADC5 Ch0 (mV): ");
+  //  Serial.print(convertToMilliV(adc_data));
+  //  delay(10);
+
+
+  // Loop through all 4 channels for this chip, get
+  // a reading and print it.
+  //  for ( int i = 0; i < 4; i++ ) {
+  //    adc_data = pc_ads1220_6.Read_SingleShot_SingleEnded_WaitForData( channel[i] );
+  //    adc_data = convertToMilliV(adc_data);
+  //    //  Serial.print("ADC6 Ch0 (mV): ");
+  //
+  //    // At the moment, we have some broken cables which
+  //    // cause incorrect values, which tend to be extremely
+  //    // large.  If we plot these, it makes the graph impossible
+  //    // to read.  So we'll just check if it looks like an error
+  //    // and if so, print a 0 instead.
+  //    if ( adc_data > 10000 ) {
+  //      Serial.print("0.00");
+  //    } else {
+  //      Serial.print(adc_data * 10, 4);
+  //
+  //    }
+  //    Serial.print(",");
+  //    delay(10);
+  //  }
+  adc_data = pc_ads1220_6.Read_SingleShot_SingleEnded_WaitForData( MUX_SE_CH0 );
+   Serial.print(convertToMilliV(adc_data* 10));
+   Serial.print(",");
+   delay(10);
+  adc_data = pc_ads1220_6.Read_SingleShot_SingleEnded_WaitForData( MUX_SE_CH1 );
+   Serial.print(convertToMilliV(adc_data * 10));
+   Serial.print(",");
+   delay(10);
+//     adc_data = pc_ads1220_6.Read_SingleShot_SingleEnded_WaitForData( MUX_SE_CH2 );
+//   Serial.print(convertToMilliV(adc_data));
+//   Serial.print(",");
+//   delay(10);
+     adc_data = pc_ads1220_6.Read_SingleShot_SingleEnded_WaitForData( MUX_SE_CH3 );
+   Serial.print(convertToMilliV(adc_data* 10));
+   Serial.print(",");
+   delay(10);
+   
+  Serial.println();
+}
+
+float convertToMilliV(int32_t i32data)
+{
+  return (float)((i32data * VFSR * 1000) / FULL_SCALE);
+}
