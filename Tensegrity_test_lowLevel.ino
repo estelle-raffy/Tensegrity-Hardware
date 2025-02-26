@@ -1,3 +1,9 @@
+// This code shows low-level optimization 
+// One strut (one motor) gets voltage input from 4 attached cords at one end
+// The strut can shorten or elongate the cords to increase or decrease the input voltage by moving up or down
+// The total (sum) voltage of the cords is measured and compared to a local demand (ideal voltage state); an error (distance to demand) is calculated
+// The strut moves to minize the error until it reaches a threshold close to the local demand 
+
 #include "Protocentral_ADS1220.h"
 #include <SPI.h>
 
