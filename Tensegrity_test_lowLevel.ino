@@ -1,9 +1,3 @@
-// This code shows low-level optimization 
-// One strut (one motor) gets voltage input from 4 attached cords at one end
-// The strut can shorten or elongate the cords to increase or decrease the input voltage by moving up or down
-// The total (sum) voltage of the cords is measured and compared to a local demand (ideal voltage state); an error (distance to demand) is calculated
-// The strut moves to minize the error until it reaches a threshold close to the local demand 
-
 #include "Protocentral_ADS1220.h"
 #include <SPI.h>
 
@@ -80,9 +74,9 @@ void enableInterruptPin() {
 #define TEST_ONE_MOTOR true // if true, only one motor is tested 
 #define TEST_MOTOR 0
 
-#define TEST_UPDATE_MS 6000
+#define TEST_UPDATE_MS 100 // 6000 was default because used 6 motors??  
 
-#define DEFAULT_STEP_DELAY_US 1800 // 150 was the fastest we can step a motor
+#define DEFAULT_STEP_DELAY_US 200 // 150 was the fastest we can step a motor; 1800 was default 
 
 
 // How fast should we step the motors?
@@ -106,8 +100,8 @@ int dir_pin[6] = { 42, 24, 9, 41, 22, 23};
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 400; // check this value
-int local_threshold = 20; // check this value
+int local_demand = 3700; // check this value
+int local_threshold = 100; // check this value
 
 
 void setup() {
@@ -124,7 +118,6 @@ void setup() {
       adc_value[i][j] = 0;
       lpf_value[i][j] = 0;
     }
-
   }
 
   // Do some initial readings to setup the low
@@ -154,17 +147,27 @@ void setup() {
   delay(100);
   Serial.begin(9600);
 
-
   adc_update_ts = millis();
-
 }
 
 //==================================== MAIN LOOP ===================================
 void loop() {
 
-  // this is non-blocking and will
-  // handle it's own timing
-  updateMotor();
+  //Serial.println("Entering loop");
+
+//  //testing the cords are sending expected outputs
+//  Serial.println(read_adc_chip_ch( 3 , 0 ));
+//  Serial.print(",");
+//  Serial.println(read_adc_chip_ch( 5 , 2 ));
+//  Serial.print(",");
+//  float total_voltage = read_adc_chip_ch( 3 , 0 ) + read_adc_chip_ch( 5 , 2 );
+//  //Serial.println(" TOTAL VOLTAGE = ");
+//  Serial.print(total_voltage);
+//  Serial.println(',');
+
+    // Move motor: this is non-blocking and
+    // will handle it's own timing
+   updateMotor();
 
 }
 //==================================== MAIN LOOP ===================================
@@ -215,7 +218,7 @@ void calibrate_all_adcs(int which) {
 
       } // end of calibrating
 
-
+      Serial.print("Calibration readings are: ");
       Serial.print( adc_value[which][i] );
       Serial.print(",");
     } // end of channel 0-3
@@ -226,6 +229,7 @@ void calibrate_all_adcs(int which) {
 
 float read_adc_chip_ch( int which, int channel ) {
 
+  //Serial.println("Entering reading ADC function");
   // Only run the following code if we have
   // been asked to read a sensible chip
   // number (e.g. 0,1,2,3,4,5)
@@ -236,6 +240,7 @@ float read_adc_chip_ch( int which, int channel ) {
 
     if (channel == 0) {
       reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+      //Serial.println("Reading channel 0");
     } else if (channel == 1) {
       reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH1);
     } else if (channel == 2) {
@@ -246,9 +251,11 @@ float read_adc_chip_ch( int which, int channel ) {
 
     float voltage = convertToMilliV(reading);
     return voltage; // Return only the requested channel's voltage
-    Serial.println("Voltage for ADC");
-    Serial.print(which);
-    Serial.print(" is ");
+//    Serial.println("Voltage for ADC ");
+//    Serial.print(which);
+//    Serial.println("and channel ");
+//    Serial.println(channel);
+//    Serial.print(" is ");
     Serial.println(voltage);
 
     for ( int i = 0; i < 4; i++ ) {
@@ -288,26 +295,34 @@ void updateMotor() { // steps motors based on time intervals
 
   if ( millis() - adc_update_ts > 50 ) {
     adc_update_ts = millis();
-    total_voltage += read_adc_chip_ch(2, 0);
-    total_voltage += read_adc_chip_ch(2, 1);
+    total_voltage += read_adc_chip_ch(3, 0);
+    total_voltage += read_adc_chip_ch(5, 2);
+    delayMicroseconds(50);
   }
 
   // work out the error to total voltage
   float local_err = local_demand - total_voltage;
+  Serial.println("----------------> local error is: ");
+  Serial.print(local_err); 
 
   // work out how to move
-  if ( micros() - step_us_ts[TEST_MOTOR] > step_delay[TEST_MOTOR] ) { // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
+  if ( micros() - step_us_ts[TEST_MOTOR] > step_delay[TEST_MOTOR] )
+  {
+    // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
     // if enough time has passed, then send step signal
     step_us_ts[TEST_MOTOR] = micros(); // updating the last step time, storing current time
-    
+
     if ( abs(local_err) < local_threshold ) {
       //stop moving
+      Serial.println("DEMAND ACHIEVED!");
     }
     else if (local_err > 0) {
       moveUp();
+      Serial.println("Shorten to increase voltage");
     }
     else {
       moveDown();
+      Serial.println("Elongate to decrease voltage");
     }
 
     // this is where we put neighbour condition
@@ -324,20 +339,20 @@ void moveDown() {
   // we just toggle the step pin high
   // then low.
   digitalWrite(step_pin[TEST_MOTOR], step_pin_state[TEST_MOTOR]);
-  delayMicroseconds(800);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US);
   digitalWrite(step_pin[TEST_MOTOR], !step_pin_state[TEST_MOTOR]);
-  delayMicroseconds(800);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US);
 }
 
 void moveUp() {
 
-  digitalWrite(dir_pin_state[TEST_MOTOR], !dir_pin_state[TEST_MOTOR]);
+  digitalWrite(dir_pin[TEST_MOTOR], !dir_pin_state[TEST_MOTOR]);
 
   // TO make the motor move one step
   // we just toggle the step pin high
   // then low.
   digitalWrite(step_pin[TEST_MOTOR], step_pin_state[TEST_MOTOR]);
-  delayMicroseconds(800);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US);
   digitalWrite(step_pin[TEST_MOTOR], !step_pin_state[TEST_MOTOR]);
-  delayMicroseconds(800);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US);
 }
