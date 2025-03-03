@@ -107,13 +107,15 @@ int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 3900; // 3700 not moving! 
-int local_threshold = 100; // check this value
+int local_demand = 3750; // 3700 not moving! 
+int local_threshold = 100; // goes with 3700 
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
-int actuation_step = 10; // allows to see the motor move, 1 was to small 
+int neigh_threshold = 40; // based on data 
+int actuation_step = 10; // allows to see the motor move, 1 was too small 
 int local_weight = 1; // how much local affects bhv, 0 = OFF
-int neigh_weight = 0; // how much neigh affects bhv, 0 = OFF 
+int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF 
 
+// **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
 void setup() {
 
@@ -346,7 +348,7 @@ void updateMotor() { // steps motors based on time intervals
 
     if ( abs(local_err) < local_threshold ) {
       //stop moving
-      Serial.println("DEMAND ACHIEVED!");
+      Serial.println("LOCAL DEMAND ACHIEVED!");
     }
     else if (local_err > 0) {
       moveStepsUp(actuation_step * local_weight);
@@ -359,8 +361,12 @@ void updateMotor() { // steps motors based on time intervals
 
     // ---------------------------------------------------------------------------------------
     // work out how to move to neighbour
-    // work out how to move to neighbour
-    if (diff_neigh > 0) {
+
+    if ( abs(diff_neigh) < neigh_threshold ){
+      //stop moving
+      Serial.println("NEIGHBOUR ACHIEVED");
+      }
+    else if (diff_neigh > 0) {
       if (neighbour_condition == -1) {
         moveStepsUp(actuation_step * neigh_weight); // shorten
         Serial.println("Decreases voltage to converge");
@@ -396,7 +402,7 @@ void updateMotor() { // steps motors based on time intervals
   Serial.print('\n');
 } // end of function
 
-
+// -------------------------------------- END OF MAIN UPDATE FUNCTION ------------------------------------------
 
 // -------------------------------------- MOVING THE MOTORS FUNCTIONS ------------------------------------------
 
