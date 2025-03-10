@@ -1,4 +1,4 @@
-
+// ** MESSY VERSION OF AUTOMATE BUT WORKS **
 // This code builds on the low-level code and adds a neighbour condition
 // module = stepper motor + 2 cords not shared with single other modules on one end
 // neighbours are modules sharing 2 cords at same end
