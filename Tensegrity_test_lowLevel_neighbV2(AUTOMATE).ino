@@ -1,4 +1,4 @@
-// ** TRYING SOME FOR LOOPS TO AUTOMATE FOR 1+ MOTORS, SO FAR NOT WORKING **
+// AUTOMATE LOWLEVEL_NEIGH CODE FOR 1+ MOTORS 
 // This code builds on the low-level code and adds a neighbour condition
 // module = stepper motor + 2 cords not shared with single other modules on one end
 // neighbours are modules sharing 2 cords at same end
@@ -23,6 +23,8 @@
 const int cs_pin[6]    = {10, 11, 17, 16, 15, 14}; // pins for ADC, check pins 10 and 11 actually work!
 const int drdy_pin[6]  = {2, 3, 18, 19, 20, 21};
 
+const int channel_key[4] = { MUX_SE_CH0, MUX_SE_CH1, MUX_SE_CH2, MUX_SE_CH3};
+
 // ADCs and channels per motor >> depending on how many motors test
 const int nb_motors = 2;
 
@@ -34,7 +36,8 @@ const int motor_ADC_neigh_1[nb_motors] = {0, 0};
 const int motor_ADC_neigh_2[nb_motors] = {5, 0};
 const int motor_channel_neigh_1[nb_motors] = {1, 2};
 const int motor_channel_neigh_2[nb_motors] = {2, 0};
-
+ //const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]};
+ 
 Protocentral_ADS1220 adc_chip[6]; // create an array of ADCs
 
 // 6 chips, each with 4 channels
@@ -412,7 +415,7 @@ void read_adc_MOTOR(int motorIndex, float &ownVoltage, float &neighVoltage) {
   // Sequentially read own ADC channels
   for (int i = 0; i < 2; i++) {
     int adcChip = motor_ADC_own[i];   // ADC chip index
-    int channel = motor_channel_own[i]; // ADC channel index
+    int channel = channel_key[ motor_channel_own[i] ] ; // ADC channel index, check printing right channels 
     Serial.print("ADC own read is: ");
     Serial.print(adcChip);
     Serial.print(" and channel: ");
@@ -449,13 +452,13 @@ void read_adc_MOTOR(int motorIndex, float &ownVoltage, float &neighVoltage) {
   }
 
   // Read "neighbor" ADC values
-  const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]};
+  const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]}; // 1,2
   const int motor_channel_neigh[2] = {motor_channel_neigh_1[motorIndex], motor_channel_neigh_2[motorIndex]};
 
   // Sequentially read neighbor ADC channels
   for (int i = 0; i < 2; i++) {
-    int adcChip = motor_ADC_neigh[i];  // ADC chip index
-    int channel = motor_channel_neigh[i]; // ADC channel index
+    int adcChip = motor_ADC_neigh[i];  // ADC chip index // 1
+    int channel = channel_key[ motor_channel_neigh[i] ]; // ADC channel index // 1
 
     Serial.print("ADC neighbour read is: ");
     Serial.print(adcChip);
