@@ -1,4 +1,4 @@
-// ** MESSY VERSION OF AUTOMATE BUT WORKS **
+// MESSY version of Tensegrity_test_lowlevelV2(AUTOMATE)
 // This code builds on the low-level code and adds a neighbour condition
 // module = stepper motor + 2 cords not shared with single other modules on one end
 // neighbours are modules sharing 2 cords at same end
@@ -7,6 +7,8 @@
 #include "Protocentral_ADS1220.h"
 #include <SPI.h>
 
+
+float results[100];
 
 /***************************************************************
 
@@ -108,13 +110,13 @@ int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 1970; // 3700 not moving!
-int local_threshold = 140; // goes with 3700
+int local_demand = 4000; // 3700 not moving!
+int local_threshold = 100; // 100 goes with 3700 for M0
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 int neigh_threshold = 40; // based on data
 int actuation_step = 10; // allows to see the motor move, 1 was too small
 int local_weight = 1; // how much local affects bhv, 0 = OFF
-int neigh_weight = 0; // how much neigh affects bhv, 0 = OFF
+int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
 
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
@@ -171,15 +173,15 @@ void loop() {
   Serial.print("***************************************************************timeStep ");
   Serial.println(timeStep);
 
-//  //testing the cords are sending expected outputs
-//  Serial.println(read_adc_chip_ch( 0 , 3 ));
-//  Serial.print(",");
-//  Serial.println(read_adc_chip_ch( 0 , 1 ));
-//  Serial.print(",");
-//  Serial.println(read_adc_chip_ch( 0 , 2 ));
-//  Serial.print(",");
-//  Serial.println(read_adc_chip_ch( 0 , 0 ));
-//  Serial.print(",");
+  //  //testing the cords are sending expected outputs
+  //  Serial.println(read_adc_chip_ch( 0 , 3 ));
+  //  Serial.print(",");
+  //  Serial.println(read_adc_chip_ch( 0 , 1 ));
+  //  Serial.print(",");
+  //  Serial.println(read_adc_chip_ch( 0 , 2 ));
+  //  Serial.print(",");
+  //  Serial.println(read_adc_chip_ch( 0 , 0 ));
+  //  Serial.print(",");
 
 
   //    float total_voltage = read_adc_chip_ch( 3 , 0 ) + read_adc_chip_ch( 5 , 2 );
@@ -207,7 +209,6 @@ void calibrate_all_adcs(int which) {
   // been asked to read a sensible chip
   // number (e.g. 0,1,2,3,4,5)
   if ( which >= 0 && which < 6 ) {
-
 
     // read each channel for this chip
     int32_t reading;
@@ -348,39 +349,48 @@ void updateMotor0() { // steps motors based on time intervals
   Serial.print(diff_neigh);
   Serial.println("\n");
 
-  // work out how to move towards local
+  // work out if should move
   if ( micros() - step_us_ts[TEST_MOTOR] > step_delay[TEST_MOTOR] ) {
     // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
     // if enough time has passed, then send step signal
     step_us_ts[TEST_MOTOR] = micros(); // updating the last step time, storing current time
+
+
+    //Working out actuation signal to send to motors depending on demand + neighbour
+    int actuation_signal_up = 0; //will carry the local + neighbour actuation for shortening
+    int actuation_signal_down = 0; //will carry the local + neighbour actuation for elongating
+    int actuation_final = 0;
 
     if ( abs(local_err) < local_threshold ) {
       //stop moving
       Serial.println("MOTOR 0 LOCAL DEMAND ACHIEVED!");
     }
     else if (local_err > 0) {
-      moveStepsUp(actuation_step * local_weight, 0);
+      //moveStepsUp(actuation_step * local_weight, 0);
+      actuation_signal_up += (actuation_step * local_weight);
       Serial.println("MOTOR 0 Increases voltage to local");
     }
     else {
-      moveStepsDown(actuation_step * local_weight, 0);
+      //moveStepsDown(actuation_step * local_weight, 0);
+      actuation_signal_down += (actuation_step * local_weight);
       Serial.println("MOTOR 0 Decreases voltage to local");
     }
 
-    // ---------------------------------------------------------------------------------------
-    // work out how to move to neighbour
+    // work out neighbour
 
     if ( abs(diff_neigh) < neigh_threshold ) {
       //stop moving
       Serial.println("MOTOR 0 NEIGHBOUR ACHIEVED");
     }
-    else if (diff_neigh > 0) {
+    else if (diff_neigh > 0) { // M0 bigger than M1
       if (neighbour_condition == -1) {
-        moveStepsUp(actuation_step * neigh_weight, 0); // shorten
+        //moveStepsUp(actuation_step * neigh_weight, 0); // shorten
+        actuation_signal_up += (actuation_step * neigh_weight);
         Serial.println("MOTOR 0 Decreases voltage to converge");
       }
       else if (neighbour_condition == 1) {
-        moveStepsDown(actuation_step * neigh_weight, 0); // elongates
+        //moveStepsDown(actuation_step * neigh_weight, 0); // elongates
+        actuation_signal_down += (actuation_step * neigh_weight);
         Serial.println("MOTOR 0 increase voltage to diverge");
       }
       else {
@@ -389,19 +399,35 @@ void updateMotor0() { // steps motors based on time intervals
 
     }  // end of if (diff_neigh > 0) block
 
-    else if (diff_neigh < 0) {
+    else if (diff_neigh < 0) { // M1 bigger than M0
       if (neighbour_condition == -1) {
-        moveStepsUp(actuation_step * neigh_weight, 0);
+        //moveStepsDown(actuation_step * neigh_weight, 0);
+        actuation_signal_down += (actuation_step * neigh_weight);
         Serial.println("MOTOR 0 Increase voltage to converge");
       }
       else if (neighbour_condition == 1) {
-        moveStepsDown(actuation_step * neigh_weight, 0);
+        //moveStepsUp(actuation_step * neigh_weight, 0);
+        actuation_signal_up += (actuation_step * neigh_weight);
         Serial.println("MOTOR 0 Decrease voltage to diverge");
       }
       else {
         Serial.println("MOTOR 0 INCORRECT NEIGHBOUR CONDITION");
       }
     }  // end of the if (diff_neigh < 0) block
+
+    // MOVE 
+    actuation_final = actuation_signal_down - actuation_signal_up; //(elongate - shortening)
+
+    if (actuation_final > 0) {
+      moveStepsDown(actuation_final, 0);
+    } else if (actuation_final < 0) {
+      moveStepsUp(abs(actuation_final), 0);
+    } else {
+      Serial.println(" Motor 0 No movement needed.");
+    }
+
+    Serial.print("MOTOR 0 FINAL ACTUATION: ");
+    Serial.println(actuation_final); // if negative means shortens
 
   } // end of check if can move
 
@@ -454,39 +480,48 @@ void updateMotor1() { // steps motors based on time intervals
   Serial.print(diff_neigh);
   Serial.println("\n");
 
-  // work out how to move towards local
+  // work out if should move
   if ( micros() - step_us_ts[TEST_MOTOR] > step_delay[TEST_MOTOR] ) {
     // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
     // if enough time has passed, then send step signal
     step_us_ts[TEST_MOTOR] = micros(); // updating the last step time, storing current time
+
+
+    //Working out actuation signal to send to motors depending on demand + neighbour
+    int actuation_signal_up = 0; //will carry the local + neighbour actuation for shortening
+    int actuation_signal_down = 0; //will carry the local + neighbour actuation for elongating
+    int actuation_final = 0;
 
     if ( abs(local_err) < local_threshold ) {
       //stop moving
       Serial.println("MOTOR 1 LOCAL DEMAND ACHIEVED!");
     }
     else if (local_err > 0) {
-      moveStepsUp(actuation_step * local_weight, 1);
+      //moveStepsUp(actuation_step * local_weight, 1);
+      actuation_signal_up += (actuation_step * local_weight);
       Serial.println("MOTOR 1 Increases voltage to local");
     }
     else {
-      moveStepsDown(actuation_step * local_weight, 1);
+      //moveStepsDown(actuation_step * local_weight, 1);
+      actuation_signal_down += (actuation_step * local_weight);
       Serial.println("MOTOR 1 Decreases voltage to local");
     }
 
-    // ---------------------------------------------------------------------------------------
-    // work out how to move to neighbour
+    // work out neighbour
 
     if ( abs(diff_neigh) < neigh_threshold ) {
       //stop moving
       Serial.println("MOTOR 1 NEIGHBOUR ACHIEVED");
     }
-    else if (diff_neigh > 0) {
+    else if (diff_neigh > 0) { // M1 bigger than M0
       if (neighbour_condition == -1) {
-        moveStepsUp(actuation_step * neigh_weight, 1); // shorten
+        //moveStepsUp(actuation_step * neigh_weight, 1); // shorten
+        actuation_signal_up += (actuation_step * neigh_weight);
         Serial.println("MOTOR 1 Decreases voltage to converge");
       }
       else if (neighbour_condition == 1) {
-        moveStepsDown(actuation_step * neigh_weight, 1); // elongates
+        //moveStepsDown(actuation_step * neigh_weight, 1); // elongates
+        actuation_signal_down += (actuation_step * neigh_weight);
         Serial.println("MOTOR 1 increase voltage to diverge");
       }
       else {
@@ -495,13 +530,15 @@ void updateMotor1() { // steps motors based on time intervals
 
     }  // end of if (diff_neigh > 0) block
 
-    else if (diff_neigh < 0) {
+    else if (diff_neigh < 0) { // M0 bigger than M1
       if (neighbour_condition == -1) {
-        moveStepsUp(actuation_step * neigh_weight, 1);
+        //moveStepsDown(actuation_step * neigh_weight, 1);
+        actuation_signal_down += (actuation_step * neigh_weight);
         Serial.println("MOTOR 1 Increase voltage to converge");
       }
       else if (neighbour_condition == 1) {
-        moveStepsDown(actuation_step * neigh_weight, 1);
+        //moveStepsUp(actuation_step * neigh_weight, 1);
+        actuation_signal_up += (actuation_step * neigh_weight);
         Serial.println("MOTOR 1 Decrease voltage to diverge");
       }
       else {
@@ -509,9 +546,23 @@ void updateMotor1() { // steps motors based on time intervals
       }
     }  // end of the if (diff_neigh < 0) block
 
+    // MOVE
+    actuation_final = actuation_signal_down - actuation_signal_up; //(elongate - shortening)
+
+    if (actuation_final > 0) {
+      moveStepsDown(actuation_final, 1);
+    } else if (actuation_final < 0) {
+      moveStepsUp(abs(actuation_final), 1);
+    } else {
+      Serial.println(" Motor 1 No movement needed.");
+    }
+
+    Serial.print("MOTOR 1 FINAL ACTUATION: ");
+    Serial.println(actuation_final); // if negative means shortens
+
   } // end of check if can move
 
-  Serial.print("===============> Updated total voltage is: ");
+  Serial.print("===============> MOTOR 1 Updated total voltage is: ");
   Serial.println(total_voltage);
   Serial.print('\n');
 } // end of function
