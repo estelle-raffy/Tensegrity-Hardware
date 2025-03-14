@@ -36,8 +36,8 @@ const int motor_ADC_neigh_1[nb_motors] = {0, 0};
 const int motor_ADC_neigh_2[nb_motors] = {5, 0};
 const int motor_channel_neigh_1[nb_motors] = {1, 2};
 const int motor_channel_neigh_2[nb_motors] = {2, 0};
- //const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]};
- 
+//const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]};
+
 Protocentral_ADS1220 adc_chip[6]; // create an array of ADCs
 
 // 6 chips, each with 4 channels
@@ -133,6 +133,59 @@ int neigh_weight = 0; // how much neigh affects bhv, 0 = OFF
 
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
+float convertToMilliV(int32_t i32data)
+{
+  return (float)((i32data * VFSR * 1000) / FULL_SCALE);
+}
+
+void calibrate_all_adcs(int which) {
+
+  // Only run the following code if we have
+  // been asked to read a sensible chip
+  // number (e.g. 0,1,2,3,4,5)
+  if ( which >= 0 && which < 6 ) {
+
+    // read each channel for this chip
+    int32_t reading;
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+    adc_value[ which ][0] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH1);
+    adc_value[ which ][1] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH2);
+    adc_value[ which ][2] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH3);
+    adc_value[ which ][3] = convertToMilliV(reading);
+
+    for ( int i = 0; i < 4; i++ ) {
+
+      //if not calibrating, apply extra check: if the latest reading is very extreme and filtering it out so it doesn't affect the filter
+      if ( CALIBRATING == false ) {
+
+        // not calibrating, did the value make an unusual big jump
+        if ( abs(adc_value[which][i]) < (lpf_value[which][i] * 50 ) ) { // if reading less than 50 times previous filtered value, then fine. if not, out so avoiding updating filter with these!
+          // no, so update low pass filter
+          lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ) ; //Exponential Moving average: New filtered value = (old filtered value*0.9) + (New ADC value*0.1)
+          // the 0.9 weight gives more importance to past readings (smoothing the signal through history) and slow 0.1 adaptation to new readings
+        }
+      } else {
+
+        lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ); // if calibration happening, always apply filter: no extreme jumps during calibration
+
+      } // end of calibrating
+
+      Serial.print("Calibration readings are: ");
+      Serial.print( adc_value[which][i] );
+      Serial.print(",");
+    } // end of channel 0-3
+
+  } // end of which < 6
+} // end of function
+
+
 void setup() {
 
   // enable and configure each adc chip
@@ -198,11 +251,11 @@ void loop() {
 
   // Move motor: this is non-blocking and
   // will handle it's own timing
-//  unsigned long start_time = millis();
+  //  unsigned long start_time = millis();
   updateMotor(0);
   updateMotor(1);
-//  unsigned long end_time = millis();
-//  Serial.println( (end_time - start_time));
+  //  unsigned long end_time = millis();
+  //  Serial.println( (end_time - start_time));
 
 }
 //==================================== END MAIN LOOP ===================================
@@ -253,6 +306,82 @@ void moveUp(int motorIndex) {
   delayMicroseconds(DEFAULT_STEP_DELAY_US); // Adds delay
 }
 
+void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
+  ownVoltage = 0;
+  neighVoltage = 0;
+
+  // Read "own" ADC values
+  const int motor_ADC_own[2] = {motor_ADC_own_1[motorIndex], motor_ADC_own_2[motorIndex]};
+  const int motor_channel_own[2] = {motor_channel_own_1[motorIndex], motor_channel_own_2[motorIndex]};
+
+  // Sequentially read own ADC channels
+  for (int i = 0; i < 2; i++) {
+    int adcChip = motor_ADC_own[i];   // ADC chip index
+    int channel = channel_key[ motor_channel_own[i] ] ; // ADC channel index, check printing right channels
+
+    // Ensure the ADC read is completed before continuing
+    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
+    float convertedVoltage = convertToMilliV(reading);
+    //printing without lpf
+    ownVoltage += convertedVoltage;
+    Serial.print("own cords converted voltage: ");
+    Serial.println(ownVoltage);
+
+    // Apply filtering
+//    if (!CALIBRATING) {
+//      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) {
+//        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+//        Serial.println(lpf_value[adcChip][channel]);
+//        Serial.println("CALIBRATING.............");
+//      }
+//    } else {
+//      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+//      Serial.print(";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;");
+//      Serial.println(lpf_value[adcChip][channel]);
+//    }
+//
+//    ownVoltage += lpf_value[adcChip][channel];
+//    Serial.print("own voltage in ADC function: ");
+//    Serial.println(ownVoltage);
+
+    // Optional: Add a small delay if needed to ensure enough time for the conversion to complete
+    delay(10); // Example: delay by 10 milliseconds, adjust as needed
+  }
+
+  // Read "neighbor" ADC values
+  const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]}; // 1,2
+  const int motor_channel_neigh[2] = {motor_channel_neigh_1[motorIndex], motor_channel_neigh_2[motorIndex]};
+
+  // Sequentially read neighbor ADC channels
+  for (int i = 0; i < 2; i++) {
+    int adcChip = motor_ADC_neigh[i];  // ADC chip index // 1
+    int channel = channel_key[ motor_channel_neigh[i] ]; // ADC channel index // 1
+
+    // Ensure the ADC read is completed before continuing
+    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
+    float convertedVoltage = convertToMilliV(reading);
+    //printing without lpf
+    neighVoltage += convertedVoltage;
+    Serial.print("neigh cords converted voltage: ");
+    Serial.println(neighVoltage);
+
+//    // Apply filtering
+//    if (!CALIBRATING) {
+//      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) {
+//        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+//      }
+//    } else {
+//      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+//    }
+
+//    neighVoltage += lpf_value[adcChip][channel];
+//    Serial.print("neigh voltage in ADC function: ");
+//    Serial.println(neighVoltage);
+
+    // Add a small delay if needed to ensure enough time for the conversion to complete
+    delay(50); // Example: delay by 10 milliseconds, adjust as needed
+  }
+}
 
 // -------------------------------------- MAIN UPDATE FUNCTION ------------------------------------------
 void updateMotor(int motor) {
@@ -267,7 +396,7 @@ void updateMotor(int motor) {
 
     // Loop through each motor
     for (int motor = 0; motor < nb_motors; motor++) {
-      ownVoltage = 0;
+      ownVoltage = 0; // maybe before for loop?
       neighVoltage = 0;
 
       // Take own and neighbor voltage of motor
@@ -294,204 +423,102 @@ void updateMotor(int motor) {
       Serial.print(diff_neigh);
       Serial.println("\n");
 
-      // Work out how to move towards local
-      if (micros() - step_us_ts[motor] > step_delay[motor]) {
-        // Update the last step time
-        step_us_ts[motor] = micros();
+      // work out if should move
+      if ( micros() - step_us_ts[motor] > step_delay[motor] ) {
+        // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
+        // if enough time has passed, then send step signal
+        step_us_ts[motor] = micros(); // updating the last step time, storing current time
 
-        if (abs(local_err) < local_threshold) {
-          // Stop moving
-          Serial.println("LOCAL DEMAND ACHIEVED!");
-        } else if (local_err > 0) {
-          moveStepsUp(motor, actuation_step * local_weight);  // Increase voltage to local
-          Serial.println("Increases voltage to local");
+
+        //Working out actuation signal to send to motors depending on demand + neighbour
+        int actuation_signal_up = 0; //will carry the local + neighbour actuation for shortening
+        int actuation_signal_down = 0; //will carry the local + neighbour actuation for elongating
+        int actuation_final = 0;
+
+        if ( abs(local_err) < local_threshold ) {
+          //stop moving
+          Serial.print(motor);
+          Serial.println(" LOCAL DEMAND ACHIEVED!");
+        }
+        else if (local_err > 0) {
+          //moveStepsUp(motor, actuation_step * local_weight);
+          actuation_signal_up += (actuation_step * local_weight);
+          Serial.print(motor);
+          Serial.println(" Increases voltage to local");
+        }
+        else {
+          //moveStepsDown(motor, actuation_step * local_weight);
+          actuation_signal_down += (actuation_step * local_weight);
+          Serial.print(motor);
+          Serial.println(" Decreases voltage to local");
+        }
+
+        // work out neighbour
+
+        if ( abs(diff_neigh) < neigh_threshold ) {
+          //stop moving
+          Serial.print(motor);
+          Serial.println(" NEIGHBOUR ACHIEVED");
+        }
+        else if (diff_neigh > 0) { // M0 bigger than M1
+          if (neighbour_condition == -1) {
+            //moveStepsUp(motor, actuation_step * neigh_weight); // shorten
+            actuation_signal_up += (actuation_step * neigh_weight);
+            Serial.print(motor);
+            Serial.println(" Decreases voltage to converge");
+          }
+          else if (neighbour_condition == 1) {
+            //moveStepsDown(motor, actuation_step * neigh_weight); // elongates
+            actuation_signal_down += (actuation_step * neigh_weight);
+            Serial.print(motor);
+            Serial.println(" increase voltage to diverge");
+          }
+          else {
+            Serial.print(motor);
+            Serial.println(" INCORRECT NEIGHBOUR CONDITION");
+          }  // end of neighbour_condition block
+
+        }  // end of if (diff_neigh > 0) block
+
+        else if (diff_neigh < 0) { // M1 bigger than M0
+          if (neighbour_condition == -1) {
+            //moveStepsDown(motor, actuation_step * neigh_weight);
+            actuation_signal_down += (actuation_step * neigh_weight);
+            Serial.print(motor);
+            Serial.println(" Increase voltage to converge");
+          }
+          else if (neighbour_condition == 1) {
+            //moveStepsUp(motor, actuation_step * neigh_weight);
+            actuation_signal_up += (actuation_step * neigh_weight);
+            Serial.print(motor);
+            Serial.println(" Decrease voltage to diverge");
+          }
+          else {
+            Serial.print(motor);
+            Serial.println(" INCORRECT NEIGHBOUR CONDITION");
+          }
+        }  // end of the if (diff_neigh < 0) block
+
+        // MOVE
+        actuation_final = actuation_signal_down - actuation_signal_up; //(elongate - shortening)
+
+        if (actuation_final > 0) {
+          moveStepsDown(motor, actuation_final);
+        } else if (actuation_final < 0) {
+          moveStepsUp(motor, abs(actuation_final));
         } else {
-          moveStepsDown(motor, actuation_step * local_weight);  // Decrease voltage to local
-          Serial.println("Decreases voltage to local");
+          Serial.print(motor);
+          Serial.println(" No movement needed.");
         }
 
-        // ---------------------------------------------------------------------------------------
-        // Work out how to move to neighbor
-        if (abs(diff_neigh) < neigh_threshold) {
-          // Stop moving
-          Serial.println("NEIGHBOUR ACHIEVED");
-        } else if (diff_neigh > 0) {
-          if (neighbour_condition == -1) {
-            moveStepsUp(motor, actuation_step * neigh_weight);  // Shorten distance
-            Serial.println("Decreases voltage to converge");
-          } else if (neighbour_condition == 1) {
-            moveStepsDown(motor, actuation_step * neigh_weight);  // Elongate distance
-            Serial.println("Increase voltage to diverge");
-          } else {
-            Serial.println("INCORRECT NEIGHBOUR CONDITION");
-          }
+        Serial.print(motor);
+        Serial.print(" FINAL ACTUATION: ");
+        Serial.println(actuation_final); // if negative means shortens
 
-        } else if (diff_neigh < 0) {
-          if (neighbour_condition == -1) {
-            moveStepsUp(motor, actuation_step * neigh_weight);  // Increase voltage to converge
-            Serial.println("Increase voltage to converge");
-          } else if (neighbour_condition == 1) {
-            moveStepsDown(motor, actuation_step * neigh_weight);  // Decrease voltage to diverge
-            Serial.println("Decrease voltage to diverge");
-          } else {
-            Serial.println("INCORRECT NEIGHBOUR CONDITION");
-          }
-        }
-      }  // End of check if can move
-    }  // End of motor loop
-  }  // End of time check for ADC update
-
-  Serial.print("===============> Updated total voltage for motor");
-  Serial.print(motor);
-  Serial.print("is ");
-  Serial.println(ownVoltage);  
-  Serial.print('\n');
+      } // end of check if can move
+    } // looping through motors
+  } // checking time for ADC reading
 } // end of function
 
 
 // -------------------------------------- END OF MAIN UPDATE FUNCTION ------------------------------------------
-
-float convertToMilliV(int32_t i32data)
-{
-  return (float)((i32data * VFSR * 1000) / FULL_SCALE);
-}
-
-void calibrate_all_adcs(int which) {
-
-  // Only run the following code if we have
-  // been asked to read a sensible chip
-  // number (e.g. 0,1,2,3,4,5)
-  if ( which >= 0 && which < 6 ) {
-
-    // read each channel for this chip
-    int32_t reading;
-
-    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
-    adc_value[ which ][0] = convertToMilliV(reading);
-
-    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH1);
-    adc_value[ which ][1] = convertToMilliV(reading);
-
-    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH2);
-    adc_value[ which ][2] = convertToMilliV(reading);
-
-    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH3);
-    adc_value[ which ][3] = convertToMilliV(reading);
-
-    for ( int i = 0; i < 4; i++ ) {
-
-      //if not calibrating, apply extra check: if the latest reading is very extreme and filtering it out so it doesn't affect the filter
-      if ( CALIBRATING == false ) {
-
-        // not calibrating, did the value make an unusual big jump
-        if ( abs(adc_value[which][i]) < (lpf_value[which][i] * 50 ) ) { // if reading less than 50 times previous filtered value, then fine. if not, out so avoiding updating filter with these!
-          // no, so update low pass filter
-          lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ) ; //Exponential Moving average: New filtered value = (old filtered value*0.9) + (New ADC value*0.1)
-          // the 0.9 weight gives more importance to past readings (smoothing the signal through history) and slow 0.1 adaptation to new readings
-        }
-      } else {
-
-        lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ); // if calibration happening, always apply filter: no extreme jumps during calibration
-
-      } // end of calibrating
-
-      Serial.print("Calibration readings are: ");
-      Serial.print( adc_value[which][i] );
-      Serial.print(",");
-    } // end of channel 0-3
-
-  } // end of which < 6
-} // end of function
-
-
-void read_adc_MOTOR(int motorIndex, float &ownVoltage, float &neighVoltage) {
-  ownVoltage = 0;
-  neighVoltage = 0;
-
-  // Read "own" ADC values
-  const int motor_ADC_own[2] = {motor_ADC_own_1[motorIndex], motor_ADC_own_2[motorIndex]};
-  const int motor_channel_own[2] = {motor_channel_own_1[motorIndex], motor_channel_own_2[motorIndex]};
-
-  // Sequentially read own ADC channels
-  for (int i = 0; i < 2; i++) {
-    int adcChip = motor_ADC_own[i];   // ADC chip index
-    int channel = channel_key[ motor_channel_own[i] ] ; // ADC channel index, check printing right channels 
-    Serial.print("ADC own read is: ");
-    Serial.print(adcChip);
-    Serial.print(" and channel: ");
-    Serial.println(channel);
-    
-    // Ensure the ADC read is completed before continuing
-    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
-    float convertedVoltage = convertToMilliV(reading);
-    Serial.print("own cords reading: ");
-    Serial.print(reading);
-    Serial.print("own cords converted voltage: ");
-    Serial.println(convertedVoltage);
-
-    // Apply filtering
-    if (!CALIBRATING) {
-      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) { 
-        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
-      }
-    } else {
-      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
-    }
-
-    ownVoltage += lpf_value[adcChip][channel];
-
-    Serial.print("MOTOR OWN cord ");
-    Serial.print(i + 1);
-    Serial.print(": Raw=");
-    Serial.print(reading);
-    Serial.print(", Filtered=");
-    Serial.println(lpf_value[adcChip][channel]);
-
-    // Optional: Add a small delay if needed to ensure enough time for the conversion to complete
-    delay(10); // Example: delay by 10 milliseconds, adjust as needed
-  }
-
-  // Read "neighbor" ADC values
-  const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]}; // 1,2
-  const int motor_channel_neigh[2] = {motor_channel_neigh_1[motorIndex], motor_channel_neigh_2[motorIndex]};
-
-  // Sequentially read neighbor ADC channels
-  for (int i = 0; i < 2; i++) {
-    int adcChip = motor_ADC_neigh[i];  // ADC chip index // 1
-    int channel = channel_key[ motor_channel_neigh[i] ]; // ADC channel index // 1
-
-    Serial.print("ADC neighbour read is: ");
-    Serial.print(adcChip);
-    Serial.print(" and channel: ");
-    Serial.println(channel);
-
-    // Ensure the ADC read is completed before continuing
-    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
-    float convertedVoltage = convertToMilliV(reading);
-    Serial.print("neigh cords reading: ");
-    Serial.print(reading);
-    Serial.print("neigh cords converted voltage: ");
-    Serial.println(convertedVoltage);
-
-    // Apply filtering
-    if (!CALIBRATING) {
-      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) { 
-        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
-      }
-    } else {
-      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
-    }
-
-    neighVoltage += lpf_value[adcChip][channel];
-
-    Serial.print("MOTOR NEIGH cord ");
-    Serial.print(i + 1);
-    Serial.print(": Raw=");
-    Serial.print(reading);
-    Serial.print(", Filtered=");
-    Serial.println(lpf_value[adcChip][channel]);
-
-    // Optional: Add a small delay if needed to ensure enough time for the conversion to complete
-    delay(50); // Example: delay by 10 milliseconds, adjust as needed
-  }
-}
