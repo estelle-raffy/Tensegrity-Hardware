@@ -133,7 +133,7 @@ int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 3600; // 3700 not moving!
+int local_demand = 3800; // 3700 not moving!
 int local_threshold = 100; // goes with 3700
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 int neigh_threshold = 40; // based on data
@@ -146,8 +146,9 @@ int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
 // like in simulation, we want to record variable for each module
 #define MAX_RESULTS 30 // agree with timesteps/2 (two motors) (within time of experiment, so about 30 each motor for 60seconds)
 #define VARIABLES 6 // what variable tracking?
-float motor0_results[MAX_RESULTS][VARIABLES]; // Motor 0 results
-float motor1_results[MAX_RESULTS][VARIABLES]; // Motor 1 results
+float motor0_results[MAX_RESULTS][VARIABLES]; // Motor 1 results
+float motor1_results[MAX_RESULTS][VARIABLES]; // Motor 2 results
+float motor2_results[MAX_RESULTS][VARIABLES]; // Motor 3 results
 int results_index; // track position of results in array from 0 to MAX_RESULTS
 
 // State where motors should run/stop
@@ -294,6 +295,7 @@ void loop() {
     Serial.print("Motor 1 update time (in microseconds): ");
     Serial.println(motor1_end_time - motor1_start_time);
 
+    MotorData motor2_data = updateMotor(2);
 
     unsigned long elapsed_time;
     elapsed_time = millis() - record_results_ts;
@@ -321,6 +323,14 @@ void loop() {
         motor1_results[results_index][4] = motor1_data.diff_neigh;
         motor1_results[results_index][5] = motor1_data.actuation_final;
 
+        // Store motor 2 results
+        motor2_results[results_index][0] = local_demand;
+        motor2_results[results_index][1] = motor2_data.ownVoltage;
+        motor2_results[results_index][2] = motor2_data.neighVoltage;
+        motor2_results[results_index][3] = motor2_data.local_err;
+        motor2_results[results_index][4] = motor2_data.diff_neigh;
+        motor2_results[results_index][5] = motor2_data.actuation_final;
+
         // Increment result index for next time.
         results_index++;
         Serial.print("Results Index: ");
@@ -346,51 +356,66 @@ void loop() {
     // Once the experiment is finished, stop the motors
     moveStepsDown(0, 0);
     moveStepsDown(1, 0);
+    moveStepsDown(2, 0);
 
     // Loop through the results and print them
     int result;
     Serial.println("Sample, Motor, Local Demand, Own Voltage, Neighbour Voltage, Local Error, Neighbour Difference, Final Actuation");
 
     for (result = 0; result < MAX_RESULTS; result++) {
-
       // Print the sample number, use result + 1 for 1-based indexing
       Serial.print(result + 1); // Print sample number (1-based indexing)
       Serial.print(",");
 
-      // Alternate between Motor 0 and Motor 1 for each sample
-      if (result % 2 == 0) {
-        Serial.print("Motor 0,");
-        // Print motor 0 data
-        Serial.print(motor0_results[result][0]); // Local Demand
-        Serial.print(",");
-        Serial.print(motor0_results[result][1]); // Own Voltage
-        Serial.print(",");
-        Serial.print(motor0_results[result][2]); // Neighbour Voltage
-        Serial.print(",");
-        Serial.print(motor0_results[result][3]); // Local Error
-        Serial.print(",");
-        Serial.print(motor0_results[result][4]); // Neighbour Difference
-        Serial.print(",");
-        Serial.print(motor0_results[result][5]); // Final Actuation for Motor 0
-      } else {
-        Serial.print("Motor 1,");
-        // Print motor 1 data
-        Serial.print(motor1_results[result][0]); // Local Demand
-        Serial.print(",");
-        Serial.print(motor1_results[result][1]); // Own Voltage
-        Serial.print(",");
-        Serial.print(motor1_results[result][2]); // Neighbour Voltage
-        Serial.print(",");
-        Serial.print(motor1_results[result][3]); // Local Error
-        Serial.print(",");
-        Serial.print(motor1_results[result][4]); // Neighbour Difference
-        Serial.print(",");
-        Serial.print(motor1_results[result][5]); // Final Actuation for Motor 1
-      }
-      Serial.print("\n");
+      // Motor 0 Data
+      Serial.print("Motor 0,");
+      Serial.print(motor0_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor0_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor0_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor0_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor0_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor0_results[result][5]); // Final Actuation for Motor 0
+      Serial.print("\n");  // Newline after Motor 0
+
+      // Motor 1 Data (same sample number)
+      Serial.print(result + 1);  // Reprint the sample number for Motor 1
+      Serial.print(",");
+      Serial.print("Motor 1,");
+      Serial.print(motor1_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor1_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor1_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor1_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor1_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor1_results[result][5]); // Final Actuation for Motor 1
+      Serial.print("\n");  // Newline after Motor 1
+
+      // Motor 2 Data (same sample number)
+      Serial.print(result + 1);  // Reprint the sample number for Motor 2
+      Serial.print(",");
+      Serial.print("Motor 2,");
+      Serial.print(motor2_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor2_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor2_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor2_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor2_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor2_results[result][5]); // Final Actuation for Motor 2
+      Serial.print("\n");  // Newline after Motor 2
     }
-
-
     // A delay to allow time for copying results
     delay(3000);
   }
