@@ -1,4 +1,4 @@
-// Description to be added.... 
+// Description to be added....
 
 #include "Protocentral_ADS1220.h"
 #include <SPI.h>
@@ -129,8 +129,10 @@ int local_demand = 3700; // 3700 not moving!
 int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 int neigh_threshold = 40; // based on data
-float local_integrated_frustration = 0; // cannot reach good local/neigh compromise will be integrated over time 
-float local_frustration_threshold = ... ; // to be set with leaky integration, error over time 
+float local_inregrated_error = 0; // will serve as the 'old error' for the leakage 
+float local_integrated_frustration = 0; // cannot reach good local/neigh compromise will be integrated over time
+float local_frustration_threshold = ... ; // to be set with leaky integration, error over time
+float lambda_local = ...;// not sure what values are best
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 int local_weight = 1; // how much local affects bhv, 0 = OFF
 int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
@@ -139,14 +141,16 @@ int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
 
 // **************************************************** HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int target_global_state = 12000 ; // each motor's state close to 4000 
+int target_global_state = 12000 ; // each motor's state close to 4000
 float current_global_state = 0; // sum of all motors voltage states
-int global_threshold = 0; // happiness range, depending on how stressed/relaxed needs to be 
-float global_integrated_frustration = 0; // cannot reach global target state threshold 
+int global_threshold = 0; // happiness range, depending on how stressed/relaxed needs to be
+float global_integrated_error = 0; // will serve as the 'old error' for the leakage 
+float global_integrated_frustration = 0; // cannot reach global target state threshold
 float global_integrated_threshold = ...; // to be set with leaky integration
-bool beingSelfish = false; // whether lower-system only focuses on local demand, if true, then turned OFF
-int global_weight = 1; // how much neigh affects bhv, 0 = OFF, should this be punishment from lower-level? 
-// e.g. if forced to be collective for too long, could be detrimental to parts 
+float lambda_global = ...; // not sure what values are best
+bool being_selfish = false; // whether lower-system only focuses on local demand, if true, then turned OFF
+int global_weight = 1; // how much neigh affects bhv, 0 = OFF, should this be punishment from lower-level?
+// e.g. if forced to be collective for too long, could be detrimental to parts
 
 // **************************************************** END OF HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
@@ -291,7 +295,7 @@ void loop() {
 
     current_global_state = 0; // reset the global state
 
-    //Motors update + extracting local error & global state 
+    //Motors update + extracting local error & global state
     MotorData motor0_data = updateMotor(0);
     motor0_results[results_index][1] = motor0_data.ownVoltage; // state of M0
     motor0_results[results_index][3] = motor0_data.local_err; // local error of M0
@@ -302,10 +306,10 @@ void loop() {
     motor2_results[results_index][1] = motor2_data.ownVoltage; // state of M2
     motor2_results[results_index][3] = motor2_data.local_err; // local error of M2
 
-    // local and global modulation 
+    // local and global modulation
     being_selfish(motor0_results[results_index][3]);
     global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1]);
-    
+
     unsigned long elapsed_time;
     elapsed_time = millis() - record_results_ts;
 
@@ -435,31 +439,40 @@ void loop() {
 
 void global_function(float motor0_results, float motor1_results, float motor2_results) {
 
-  global_error = target_global_state - current_global_state
-  
-  current_global_state = motor0_results[results_index][1] + motor1_results[results_index][1] + motor2_results[results_index][1];
+  // print current state
+  float current_global_state = motor0_results + motor1_results + motor2_results;
   Serial.print("Current global state is ");
   Serial.println(current_global_state);
 
-  if (abs(global_error) < global_threshold){
-    // SUCCESS, higher-level doesn't need to do anything  
-     Serial.println("GLOBAL SUCCESS ACHIEVED!");
+  // get the 'new' error
+  float global_error = target_global_state - current_global_state;
+
+  // integrate the error
+  global_integrated_error = global_integrated_error + (global_error - (lambda_global * global_integrated_error)) * 1;
+    // global_integrated_error = old error, declared globally
+  // (lambda_global * global_integrated_error) = portion of old error to simulate 'leakage'
+  // timestep = 1 
+
+  // update global_integrated_frustration
+  global_integrated_frustration += global_integrated_error;
+
+  //WORK OUT WHAT TO DO
+  if (abs(global_error) < global_threshold) {
+    // SUCCESS, higher-level doesn't need to do anything
+    Serial.println("GLOBAL SUCCESS ACHIEVED!");
   }
-
-  else if { //.... here puts the leaky integration, do we have diff scenarios ? 
-    // Do we need to prevent selfish behaviour? 
-    // integrate global_error (leaky integration) 
-    // update global_integrated_frustration
-
-    if (abs(global_integrated_frustration) > global_integrated_threshold{
-      // do nothing, still acceptable 
-    }
-    else {
-    // Turn selfishness function off  
-    neigh_weight = 1; // make sure that neigh_weight is active! 
-    being_selfish = true; 
-    Serial.println("Selfishness prevented!");
-    }
+  else if (abs(global_integrated_frustration) < global_integrated_threshold) {
+  // do nothing, still acceptable
+  Serial.println("Frustration still acceptable");
+  }
+  else if (abs(global_integrated_frustration) > global_integrated_threshold) { // could be an else but checking no error/other scenario
+  // Turn selfishness function off
+  neigh_weight = 1; // make sure that neigh_weight is active!
+  being_selfish = false; // turning off the selfishness function
+  Serial.println("OVERULING SELFISHNESS!");
+  }
+  else {
+    Serial.println("Error global function");
   }
 }
 
@@ -467,19 +480,34 @@ void global_function(float motor0_results, float motor1_results, float motor2_re
 
 // ############################################ SELFISHNESS! ######################################################
 
-void being_selfish(float local_err){ // 
+void being_selfish(float local_err) { //
 
-  // work out accumulated error over time 
+  // work out the local error
+  float current_local_error = local_demand - local_err
+  // work out accumulated error over time
+  local_integrated_error = local_integrated_error + (current_local_error - (lambda_global * local_integrated_error)) * 1;
   // update local_integrated_frustration
+  local_integrated_frustration += local_integrated_error;
   
-  if (abs(local_integrated_frustration) < local_integrated_threshold) { // leaky integration
+  if (being_selfish){
+    // look at frustration to decide if shut off neighbour 
+      if (abs(local_integrated_frustration) < local_integrated_threshold) { 
     // do nothing, still acceptable
-    // Make sure neigh_weight is active 
-    neigh_weight = 1; 
+    // Make sure neigh_weight is active
+    neigh_weight = 1;
+    Serial.println("Playing collective, neighbour weight: ");
+    Serial.println(neigh_weight);
+        }
+      else if (abs(local_integrated_frustration) > local_integrated_threshold) {
+    // frustration level not acceptable
+    neigh_weight -= ... ; // decrease neighbour weight or turn off?
+    Serial.print("Playing selfish, neighbour weight: ");
+    Serial.println(neigh_weight);
+        }
   }
-  else if (){
-    // adjust 
-    neigh_weight -= ... ; // or turn off? 
+  else {
+    // function not active, do nothing
+    Serial.println("Selfish function disabled");
   }
 }
 
