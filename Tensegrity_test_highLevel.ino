@@ -1,4 +1,4 @@
-// Description to be added....
+// Records ... results (% memory capacity) at interval... (Timestep ~ )
 
 #include "Protocentral_ADS1220.h"
 #include <SPI.h>
@@ -125,17 +125,18 @@ int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 3700; // 3700 not moving!
+int local_demand = 4000; // 3700 not moving!
 int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
-int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 int neigh_threshold = 40; // based on data
-float local_inregrated_error = 0; // will serve as the 'old error' for the leakage 
+float local_integrated_error = 0; // will serve as the 'old error' for the leakage
 float local_integrated_frustration = 0; // cannot reach good local/neigh compromise will be integrated over time
-float local_frustration_threshold = ... ; // to be set with leaky integration, error over time
-float lambda_local = ...;// not sure what values are best
+float local_frustration_threshold = local_demand * 3 ; // since taking the absolute value of error, no need for min_value
+float local_recovery_threshold = local_demand * 2 ; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 int local_weight = 1; // how much local affects bhv, 0 = OFF
 int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
+int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
@@ -143,19 +144,18 @@ int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
 
 int target_global_state = 12000 ; // each motor's state close to 4000
 float current_global_state = 0; // sum of all motors voltage states
-int global_threshold = 0; // happiness range, depending on how stressed/relaxed needs to be
-float global_integrated_error = 0; // will serve as the 'old error' for the leakage 
+int global_threshold = 100; // happiness range, depending on how stressed/relaxed needs to be
+float global_integrated_error = 0; // will serve as the 'old error' for the leakage
 float global_integrated_frustration = 0; // cannot reach global target state threshold
-float global_integrated_threshold = ...; // to be set with leaky integration
-float lambda_global = ...; // not sure what values are best
-bool being_selfish = false; // whether lower-system only focuses on local demand, if true, then turned OFF
-int global_weight = 1; // how much neigh affects bhv, 0 = OFF, should this be punishment from lower-level?
-// e.g. if forced to be collective for too long, could be detrimental to parts
+float global_frustration_threshold = target_global_state * 3; // since taking the absolute value of error, no need for min_value
+float global_recovery_threshold = target_global_state * 2 ; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float lambda_global = 0.2 ; // 1 = all the error leaks out!, want a slower leak for LT effect than local
+bool beingSelfish = false; // whether lower-system only focuses on local demand, if true, then turned OFF
 
 // **************************************************** END OF HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
 // like in simulation, we want to record variable for each module
-#define MAX_RESULTS 30 // agree with timesteps/2 (two motors) (within time of experiment, so about 30 each motor for 60seconds)
+#define MAX_RESULTS 70 // agree with memory capacity (~70%),try to take as much as possible
 #define VARIABLES 6 // what variable tracking?
 float motor0_results[MAX_RESULTS][VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][VARIABLES]; // Motor 2 results
@@ -170,7 +170,7 @@ int state;
 // Time stamp to track whether the experiment
 // duration has elapsed.
 unsigned long experiment_start_ts;
-# define EXPERIMENT_END_MS 60000 // 30 seconds?
+# define EXPERIMENT_END_MS 60000 // 60 seconds
 
 // We can try to automate the time interval
 // of storing results.
@@ -233,7 +233,7 @@ void calibrate_all_adcs(int which) {
 void setup() {
 
   results_index = 0;
-  results_interval_ms = 1666; //(EXPERIMENT_END_MS / MAX_RESULTS); // 1666ms --> 1 timestep
+  results_interval_ms = 426; // = 1 timestep ~426.248ms
 
   // enable and configure each adc chip
   for ( int i = 0; i < 6; i++ ) {
@@ -293,6 +293,8 @@ void loop() {
     Serial.print("***************************************************************timeStep ");
     Serial.println(timeStep);
 
+    unsigned long timeStep_starts = micros();
+
     current_global_state = 0; // reset the global state
 
     //Motors update + extracting local error & global state
@@ -309,6 +311,10 @@ void loop() {
     // local and global modulation
     being_selfish(motor0_results[results_index][3]);
     global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1]);
+
+    unsigned long timeStep_ends = micros();
+    Serial.println(timeStep_ends - timeStep_starts);
+
 
     unsigned long elapsed_time;
     elapsed_time = millis() - record_results_ts;
@@ -439,6 +445,8 @@ void loop() {
 
 void global_function(float motor0_results, float motor1_results, float motor2_results) {
 
+  float neighbour_weight = 0; 
+  
   // print current state
   float current_global_state = motor0_results + motor1_results + motor2_results;
   Serial.print("Current global state is ");
@@ -446,30 +454,46 @@ void global_function(float motor0_results, float motor1_results, float motor2_re
 
   // get the 'new' error
   float global_error = target_global_state - current_global_state;
+  Serial.print("Global error is ");
+  Serial.println(global_error);
 
   // integrate the error
   global_integrated_error = global_integrated_error + (global_error - (lambda_global * global_integrated_error)) * 1;
-    // global_integrated_error = old error, declared globally
+  // global_integrated_error = old error, declared globally
   // (lambda_global * global_integrated_error) = portion of old error to simulate 'leakage'
-  // timestep = 1 
+  // timestep = 1
 
   // update global_integrated_frustration
   global_integrated_frustration += global_integrated_error;
+  Serial.print("GLOBAL FRUSTRATION LEVELS: ");
+  Serial.println(global_integrated_frustration);
 
-  //WORK OUT WHAT TO DO
+  // WORK OUT WHAT TO DO
   if (abs(global_error) < global_threshold) {
     // SUCCESS, higher-level doesn't need to do anything
     Serial.println("GLOBAL SUCCESS ACHIEVED!");
   }
-  else if (abs(global_integrated_frustration) < global_integrated_threshold) {
-  // do nothing, still acceptable
-  Serial.println("Frustration still acceptable");
+  else if (abs(global_integrated_frustration) < global_recovery_threshold) {
+    // Recovery: Make sure selfishness is ON or turn selfishness back on
+    Serial.println("Below global recovery");
+    if (!beingSelfish) {
+      Serial.println("SELFISHNESS ALLOWED");
+    }
+    beingSelfish = true; // Turning selfishness back on
   }
-  else if (abs(global_integrated_frustration) > global_integrated_threshold) { // could be an else but checking no error/other scenario
-  // Turn selfishness function off
-  neigh_weight = 1; // make sure that neigh_weight is active!
-  being_selfish = false; // turning off the selfishness function
-  Serial.println("OVERULING SELFISHNESS!");
+  else if (abs(global_integrated_frustration) < global_frustration_threshold) {
+    // Still acceptable, do nothing
+    Serial.println("Frustration still acceptable");
+  }
+  else if (abs(global_integrated_frustration) > global_frustration_threshold) {
+    // Frustration too high, turn selfishness off
+    if (beingSelfish) {
+      Serial.println("OVERRULING SELFISHNESS!");
+    }
+    neighbour_weight = neigh_weight; // Make sure neigh_weight is reset!
+    Serial.print("Neighbour weight in global is: ");
+    Serial.println(neighbour_weight);
+    beingSelfish = false; // Keeping/turning off selfishness function
   }
   else {
     Serial.println("Error global function");
@@ -482,28 +506,39 @@ void global_function(float motor0_results, float motor1_results, float motor2_re
 
 void being_selfish(float local_err) { //
 
+  float neighbour_weight = 0; 
+  
   // work out the local error
-  float current_local_error = local_demand - local_err
+  float current_local_error = local_demand - local_err;
   // work out accumulated error over time
   local_integrated_error = local_integrated_error + (current_local_error - (lambda_global * local_integrated_error)) * 1;
   // update local_integrated_frustration
   local_integrated_frustration += local_integrated_error;
+  Serial.print("LOCAL FRUSTRATION LEVELS: ");
+  Serial.println(local_integrated_frustration);
   
-  if (being_selfish){
-    // look at frustration to decide if shut off neighbour 
-      if (abs(local_integrated_frustration) < local_integrated_threshold) { 
-    // do nothing, still acceptable
-    // Make sure neigh_weight is active
-    neigh_weight = 1;
-    Serial.println("Playing collective, neighbour weight: ");
-    Serial.println(neigh_weight);
-        }
-      else if (abs(local_integrated_frustration) > local_integrated_threshold) {
-    // frustration level not acceptable
-    neigh_weight -= ... ; // decrease neighbour weight or turn off?
-    Serial.print("Playing selfish, neighbour weight: ");
-    Serial.println(neigh_weight);
-        }
+  if (beingSelfish) {
+    // look at frustration to decide if shut off neighbour
+    Serial.println("Selfishness is on");
+    if (abs(local_integrated_frustration) < local_recovery_threshold){
+      // Recovery: Make sure neigh_weight is reset
+      neighbour_weight = neigh_weight;
+      Serial.print("Below local recovery, neighbour weight: ");
+      Serial.println(neigh_weight);
+    }
+    else if (abs(local_integrated_frustration) < local_frustration_threshold) {
+      // do nothing, still acceptable
+      // Make sure neigh_weight is active
+      neighbour_weight = neigh_weight;
+      Serial.println("Playing collective, neighbour weight: ");
+      Serial.println(neigh_weight);
+    }
+    else if (abs(local_integrated_frustration) > local_frustration_threshold) {
+      // frustration level not acceptable
+      neigh_weight = 0; // start with on/off and can then decide a proportion of it depending on magnitude of frustration?
+      Serial.print("Playing selfish, neighbour weight: ");
+      Serial.println(neigh_weight);
+    }
   }
   else {
     // function not active, do nothing
@@ -577,8 +612,8 @@ void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
     float convertedVoltage = convertToMilliV(reading);
     //printing without lpf
     ownVoltage += convertedVoltage;
-    Serial.print("own cords converted voltage: ");
-    Serial.println(ownVoltage);
+//    Serial.print("own cords converted voltage: ");
+//    Serial.println(ownVoltage);
 
     // Apply filtering
     //    if (!CALIBRATING) {
@@ -615,8 +650,8 @@ void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
     float convertedVoltage = convertToMilliV(reading);
     //printing without lpf
     neighVoltage += convertedVoltage;
-    Serial.print("neigh cords converted voltage: ");
-    Serial.println(neighVoltage);
+//    Serial.print("neigh cords converted voltage: ");
+//    Serial.println(neighVoltage);
 
     //    // Apply filtering
     //    if (!CALIBRATING) {
@@ -769,5 +804,3 @@ MotorData updateMotor(int motor) {
 
   return data; // Return data for the specific motor requested
 }// end of function
-
-// -------------------------------------- END OF MAIN UPDATE FUNCTION ------------------------------------------
