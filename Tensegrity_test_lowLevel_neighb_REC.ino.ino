@@ -1,8 +1,4 @@
-// This code records DATA : timestep with all print statements = ~ 1666ms, 1.6s
-// ... option 1: MAX_RESULTS can be set to 18, results_interval_ms to 30000ms (timestep) (30000/1666 = 18)
-//... which give one sample per update (but harder to detect micro-changes/missing on small variations)
-//... option 2: results_interval_ms 1666ms matching update & keep MAX_RESULTS = 100; better for M:/statistical analysis and more data points over time
-//... but can be lots of repeated values/too many datapoints + more storage and processing needs
+// This code records DATA : 70 timesteps => 70 max_results (~70% memory capacity), 60 seconds duration, Interval (=timestep) ~426.248ms, 
 // This code also builds on the low-level code and adds a neighbour condition
 // module = stepper motor + 2 cords not shared with single other modules on one end
 // neighbours are modules sharing 2 cords at same end
@@ -133,9 +129,9 @@ int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-int local_demand = 3800; // 3700 not moving!
+int local_demand = 3700; // 3700 not moving!
 int local_threshold = 100; // goes with 3700
-int neighbour_condition = -1; // -1 same voltage; 1 different voltage
+int neighbour_condition = 1; // -1 same voltage; 1 different voltage
 int neigh_threshold = 40; // based on data
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 int local_weight = 1; // how much local affects bhv, 0 = OFF
@@ -144,7 +140,7 @@ int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
 // like in simulation, we want to record variable for each module
-#define MAX_RESULTS 30 // agree with timesteps/2 (two motors) (within time of experiment, so about 30 each motor for 60seconds)
+#define MAX_RESULTS 70 // agree with memory capacity (~70%),try to take as much as possible 
 #define VARIABLES 6 // what variable tracking?
 float motor0_results[MAX_RESULTS][VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][VARIABLES]; // Motor 2 results
@@ -159,7 +155,7 @@ int state;
 // Time stamp to track whether the experiment
 // duration has elapsed.
 unsigned long experiment_start_ts;
-# define EXPERIMENT_END_MS 60000 // 30 seconds?
+# define EXPERIMENT_END_MS 60000 // 60 seconds
 
 // We can try to automate the time interval
 // of storing results.
@@ -222,7 +218,7 @@ void calibrate_all_adcs(int which) {
 void setup() {
 
   results_index = 0;
-  results_interval_ms = 1666; //(EXPERIMENT_END_MS / MAX_RESULTS); // 1666ms --> 1 timestep
+  results_interval_ms = 426; // one timestep, update time of the 6 variables 
 
   // enable and configure each adc chip
   for ( int i = 0; i < 6; i++ ) {
@@ -282,20 +278,13 @@ void loop() {
     Serial.print("***************************************************************timeStep ");
     Serial.println(timeStep);
 
-    // Track motors update time
-    unsigned long motor0_start_time = micros();
+    // Updates 
+    unsigned long timeStep_starts = micros();
     MotorData motor0_data = updateMotor(0);
-    unsigned long motor0_end_time = micros();
-    Serial.print("Motor 0 update time (in microseconds): ");
-    Serial.println(motor0_end_time - motor0_start_time);
-
-    unsigned long motor1_start_time = micros();
     MotorData motor1_data = updateMotor(1);
-    unsigned long motor1_end_time = micros();
-    Serial.print("Motor 1 update time (in microseconds): ");
-    Serial.println(motor1_end_time - motor1_start_time);
-
     MotorData motor2_data = updateMotor(2);
+    unsigned long timeStep_ends = micros();
+    Serial.println(timeStep_ends - timeStep_starts);
 
     unsigned long elapsed_time;
     elapsed_time = millis() - record_results_ts;
@@ -486,8 +475,8 @@ void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
     float convertedVoltage = convertToMilliV(reading);
     //printing without lpf
     ownVoltage += convertedVoltage;
-    Serial.print("own cords converted voltage: ");
-    Serial.println(ownVoltage);
+    //Serial.print("own cords converted voltage: ");
+    //Serial.println(ownVoltage);
 
     // Apply filtering
     //    if (!CALIBRATING) {
@@ -524,8 +513,8 @@ void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
     float convertedVoltage = convertToMilliV(reading);
     //printing without lpf
     neighVoltage += convertedVoltage;
-    Serial.print("neigh cords converted voltage: ");
-    Serial.println(neighVoltage);
+    //Serial.print("neigh cords converted voltage: ");
+    //Serial.println(neighVoltage);
 
     //    // Apply filtering
     //    if (!CALIBRATING) {
@@ -567,26 +556,26 @@ MotorData updateMotor(int motor) {
     // Take own and neighbor voltage of the specified motor
     read_adc_MOTOR(motor, data.ownVoltage, data.neighVoltage);
 
-    Serial.print("Motor ");
-    Serial.print(motor);
-    Serial.print(" Own Voltage: ");
-    Serial.println(data.ownVoltage);
-    Serial.print("Motor ");
-    Serial.print(motor);
-    Serial.print(" Neighbor Voltage: ");
-    Serial.println(data.neighVoltage);
+//    Serial.print("Motor ");
+//    Serial.print(motor);
+//    Serial.print(" Own Voltage: ");
+//    Serial.println(data.ownVoltage);
+//    Serial.print("Motor ");
+//    Serial.print(motor);
+//    Serial.print(" Neighbor Voltage: ");
+//    Serial.println(data.neighVoltage);
 
     // Calculate the error to total voltage
     data.local_err = local_demand - data.ownVoltage; //no longer defined as float since global
-    Serial.print("----------------> local error is: ");
-    Serial.print(data.local_err);
-    Serial.println("\n");
+//    Serial.print("----------------> local error is: ");
+//    Serial.print(data.local_err);
+//    Serial.println("\n");
 
     // Work out the difference with neighbor
     data.diff_neigh = data.ownVoltage - data.neighVoltage; //no longer defined as float since global
-    Serial.print("-----------------> Neighbour Difference is: ");
-    Serial.print(data.diff_neigh);
-    Serial.println("\n");
+//    Serial.print("-----------------> Neighbour Difference is: ");
+//    Serial.print(data.diff_neigh);
+//    Serial.println("\n");
 
     // work out if should move
     if (micros() - step_us_ts[motor] > step_delay[motor]) {
@@ -602,72 +591,77 @@ MotorData updateMotor(int motor) {
         // stop moving
         actuation_signal_up = 0;
         actuation_signal_down = 0;
-        Serial.print(motor);
-        Serial.println(" LOCAL DEMAND ACHIEVED!");
+//        Serial.print(motor);
+//        Serial.println(" LOCAL DEMAND ACHIEVED!");
       } else if (data.local_err > 0) {
         //moveStepsUp(motor, actuation_step * local_weight);
         actuation_signal_up += (actuation_step * local_weight);
-        Serial.print(motor);
-        Serial.println(" Increases voltage to local");
+//        Serial.print(motor);
+//        Serial.println(" Increases voltage to local");
       } else {
         //moveStepsDown(motor, actuation_step * local_weight);
         actuation_signal_down += (actuation_step * local_weight);
-        Serial.print(motor);
-        Serial.println(" Decreases voltage to local");
+//        Serial.print(motor);
+//        Serial.println(" Decreases voltage to local");
       }
 
       // work out neighbour
-      if (abs(data.diff_neigh) < neigh_threshold) {
-        //stop moving
-        Serial.print(motor);
-        Serial.println(" NEIGHBOUR ACHIEVED");
-      } else if (data.diff_neigh > 0) { // M0 bigger than M1
-        if (neighbour_condition == -1) {
-          //moveStepsUp(motor, actuation_step * neigh_weight); // shorten
-          actuation_signal_up += (actuation_step * neigh_weight);
-          Serial.print(motor);
-          Serial.println(" Decreases voltage to converge");
-        } else if (neighbour_condition == 1) {
-          //moveStepsDown(motor, actuation_step * neigh_weight); // elongates
-          actuation_signal_down += (actuation_step * neigh_weight);
-          Serial.print(motor);
-          Serial.println(" increase voltage to diverge");
-        } else {
-          Serial.print(motor);
-          Serial.println(" INCORRECT NEIGHBOUR CONDITION");
+      if (neighbour_condition == -1) {  // Should be as close as possible
+        // Check if local error is within threshold
+        if (abs(data.local_err) < local_threshold) {
+          // stop moving
+          actuation_signal_up = 0;
+          actuation_signal_down = 0;
+//          Serial.print(motor);
+//          Serial.println(" LOCAL DEMAND ACHIEVED!");
+        } else if (data.local_err > 0) {  // // M0 bigger than M1, decrease voltage to converge
+          //moveStepsDown(motor, actuation_step * local_weight);  // elongates
+          actuation_signal_down += (actuation_step * local_weight);
+//          Serial.print(motor);
+//          Serial.println(" decreases voltage to local");
+        } else {  // M0 smaller than M1, increase voltage to converge
+          //moveStepsUp(motor, actuation_step * local_weight);  // shortens
+          actuation_signal_up += (actuation_step * local_weight);
+//          Serial.print(motor);
+//          Serial.println(" Increases voltage to local");
         }
-      } else if (data.diff_neigh < 0) { // M1 bigger than M0
-        if (neighbour_condition == -1) {
-          //moveStepsDown(motor, actuation_step * neigh_weight);
-          actuation_signal_down += (actuation_step * neigh_weight);
-          Serial.print(motor);
-          Serial.println(" Increase voltage to converge");
-        } else if (neighbour_condition == 1) {
-          //moveStepsUp(motor, actuation_step * neigh_weight);
-          actuation_signal_up += (actuation_step * neigh_weight);
-          Serial.print(motor);
-          Serial.println(" Decrease voltage to diverge");
-        } else {
-          Serial.print(motor);
-          Serial.println(" INCORRECT NEIGHBOUR CONDITION");
+      } else if (neighbour_condition == 1) {  // Should be as different as possible (increase the difference)
+        // Check if the neighbour difference is within the allowable range
+        if (abs(data.diff_neigh) > 200) {
+          // Stop moving if the difference exceeds 200
+          actuation_signal_up = 0;
+          actuation_signal_down = 0;
+//          Serial.print(motor);
+//          Serial.println(" Neighbour difference too large, no more movement allowed");
+        } else if (data.diff_neigh > 0) { //M0 bigger than M1, keeps getting big
+          actuation_signal_up += (actuation_step * neigh_weight);  // keep shortening
+//          Serial.print(motor);
+//          Serial.println(" Increases voltage to diverge");
+        } else { // M0 smaller than M1, keeps getting small
+          actuation_signal_down += (actuation_step * neigh_weight);  // keep elongating
+//          Serial.print(motor);
+//          Serial.println(" Decreases voltage to diverge");
         }
+      } else {
+//        Serial.print(motor);
+//        Serial.println(" INCORRECT NEIGHBOUR CONDITION");
       }
 
       // MOVE
       data.actuation_final = actuation_signal_down - actuation_signal_up; // (elongate - shortening)
 
       if (data.actuation_final > 0) {
-        moveStepsDown(motor, data.actuation_final);
+        moveStepsDown(motor, data.actuation_final); // elongates - increases voltage 
       } else if (data.actuation_final < 0) {
-        moveStepsUp(motor, abs(data.actuation_final));
+        moveStepsUp(motor, abs(data.actuation_final)); // shortens - decreases voltage
       } else {
-        Serial.print(motor);
-        Serial.println(" No movement needed.");
+//        Serial.print(motor);
+//        Serial.println(" No movement needed.");
       }
-
-      Serial.print(motor);
-      Serial.print(" FINAL ACTUATION: ");
-      Serial.println(data.actuation_final); // if negative means shortens
+//
+//      Serial.print(motor);
+//      Serial.print(" FINAL ACTUATION: ");
+//      Serial.println(data.actuation_final); // if negative means shortens --> voltage increases 
     } // end of check if can move
   } // checking time for ADC reading
 
