@@ -574,7 +574,10 @@ ExperimentData being_selfish(int motor, float new_local_err) { //
     // look at frustration to decide if shut off neighbour
     Serial.print("Selfishness is on for Motor ");
     Serial.println(motor);
-    if (abs(local_frustration_data.local_integrated_frustration) < local_recovery_threshold){
+    if (abs(local_frustration_data.local_integrated_frustration) < local_threshold)
+      Serial.println("LOCAL ACHIEVED! No need for selfishness");
+      beingSelfish = false; 
+    else if (abs(local_frustration_data.local_integrated_frustration) < local_recovery_threshold){
       // Recovery: Make sure neigh_weight is reset
       neighbour_weight = neigh_weight;
       Serial.print(motor);
