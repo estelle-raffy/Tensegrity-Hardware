@@ -132,7 +132,8 @@ int timeStep = 0;
 int local_demand = 3700; // 3700 not moving!
 int local_threshold = 100; // goes with 3700
 int neighbour_condition = 1; // -1 same voltage; 1 different voltage
-int neigh_threshold = 40; // based on data
+int neigh_threshold_converge = 40; // based on data
+int neigh_threshold_diverge = 200; 
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 int local_weight = 1; // how much local affects bhv, 0 = OFF
 int neigh_weight = 1; // how much neigh affects bhv, 0 = OFF
@@ -608,13 +609,13 @@ MotorData updateMotor(int motor) {
       // work out neighbour
       if (neighbour_condition == -1) {  // Should be as close as possible
         // Check if local error is within threshold
-        if (abs(data.local_err) < local_threshold) {
+        if (abs(data.diff_neigh) < neigh_threshold_converge) {
           // stop moving
           actuation_signal_up = 0;
           actuation_signal_down = 0;
 //          Serial.print(motor);
 //          Serial.println(" LOCAL DEMAND ACHIEVED!");
-        } else if (data.local_err > 0) {  // // M0 bigger than M1, decrease voltage to converge
+        } else if (data.diff_neigh > 0) {  // // M0 bigger than M1, decrease voltage to converge
           //moveStepsDown(motor, actuation_step * local_weight);  // elongates
           actuation_signal_down += (actuation_step * local_weight);
 //          Serial.print(motor);
@@ -627,7 +628,7 @@ MotorData updateMotor(int motor) {
         }
       } else if (neighbour_condition == 1) {  // Should be as different as possible (increase the difference)
         // Check if the neighbour difference is within the allowable range
-        if (abs(data.diff_neigh) > 200) {
+        if (abs(data.diff_neigh) > neigh_threshold_diverge) {
           // Stop moving if the difference exceeds 200
           actuation_signal_up = 0;
           actuation_signal_down = 0;
