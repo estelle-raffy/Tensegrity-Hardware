@@ -132,8 +132,12 @@ int timeStep = 0;
 int local_demand = 4000; // 3700 not moving!
 int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
 int neigh_threshold = 40; // based on data
-float local_integrated_error = 0; // will serve as the 'old error' for the leakage
-float local_integrated_frustration = 0; // cannot reach good local/neigh compromise will be integrated over time
+float local_integrated_error_motor0= 0; // will serve as the 'old error' for the leakage
+float local_integrated_error_motor1 = 0;
+float local_integrated_error_motor2 = 0;
+float local_integrated_frustration_motor0 = 0; // cannot reach good local/neigh compromise will be integrated over time
+float local_integrated_frustration_motor1 = 0;
+float local_integrated_frustration_motor2 = 0;
 float local_frustration_threshold = local_demand * 3 ; // since taking the absolute value of error, no need for min_value
 float local_recovery_threshold = local_demand * 2 ; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
 float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
@@ -316,9 +320,9 @@ void loop() {
 
     // local and global modulation
    
-    ExperimentData motor0_frustration_local = being_selfish(0, motor0_data.local_err_after_actuation);
-    ExperimentData motor1_frustration_local = being_selfish(1, motor1_data.local_err_after_actuation);
-    ExperimentData motor2_frustration_local = being_selfish(2, motor2_data.local_err_after_actuation);
+    ExperimentData motor0_frustration_local = being_selfish(0, motor0_data.local_err_after_actuation, local_integrated_error_motor0, local_integrated_frustration_motor0);
+    ExperimentData motor1_frustration_local = being_selfish(1, motor1_data.local_err_after_actuation, local_integrated_error_motor1, local_integrated_frustration_motor1);
+    ExperimentData motor2_frustration_local = being_selfish(2, motor2_data.local_err_after_actuation, local_integrated_error_motor2, local_integrated_frustration_motor2);
     ExperimentData frustration_global = global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1]);
 
     unsigned long timeStep_ends = micros();
@@ -493,9 +497,7 @@ void loop() {
 ExperimentData global_function(float motor0_results, float motor1_results, float motor2_results) {
 
   ExperimentData global_frustration_data;
-  
-  float neighbour_weight = 0; 
-  
+   
   // print current state
   float current_global_state = motor0_results + motor1_results + motor2_results;
   Serial.print("Current global state is ");
@@ -532,16 +534,16 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
   }
   else if (abs(global_frustration_data.global_integrated_frustration) < global_frustration_threshold) {
     // Still acceptable, do nothing
-    Serial.println("Frustration still acceptable");
+    Serial.println("Frustration below global threshold acceptable");
   }
   else if (abs(global_frustration_data.global_integrated_frustration) > global_frustration_threshold) {
     // Frustration too high, turn selfishness off
     if (beingSelfish) {
       Serial.println("OVERRULING SELFISHNESS!");
     }
-    neighbour_weight = neigh_weight; // Make sure neigh_weight is reset!
+    neigh_weight = 1;; // Make sure neigh_weight is reset!
     Serial.print("Neighbour weight in global is: ");
-    Serial.println(neighbour_weight);
+    Serial.println(neigh_weight);
     beingSelfish = false; // Keeping/turning off selfishness function
   }
   else {
@@ -554,12 +556,10 @@ return global_frustration_data;
 
 // ############################################ SELFISHNESS! ######################################################
 
-ExperimentData being_selfish(int motor, float new_local_err) { //
+ExperimentData being_selfish(int motor, float new_local_err, float &local_integrated_error, float &local_integrated_frustration) { //
 
   ExperimentData local_frustration_data;
   
-  float neighbour_weight = 0; 
-
   // work out accumulated error over time
   local_integrated_error = local_integrated_error + (new_local_err - (lambda_global * local_integrated_error)) * 1;
   // update local_integrated_frustration
@@ -574,36 +574,36 @@ ExperimentData being_selfish(int motor, float new_local_err) { //
     // look at frustration to decide if shut off neighbour
     Serial.print("Selfishness is on for Motor ");
     Serial.println(motor);
-    if (abs(local_frustration_data.local_integrated_frustration) < local_threshold)
+    if (abs(local_frustration_data.local_integrated_frustration) < local_threshold){
       Serial.println("LOCAL ACHIEVED! No need for selfishness");
       beingSelfish = false; 
+    }
     else if (abs(local_frustration_data.local_integrated_frustration) < local_recovery_threshold){
       // Recovery: Make sure neigh_weight is reset
-      neighbour_weight = neigh_weight;
+      neigh_weight = 1;
       Serial.print(motor);
-      Serial.print(" is below local recovery, neighbour weight: ");
+      Serial.print(" plays collective below local recovery threshold, neighbour weight: ");
       Serial.println(neigh_weight);
     }
     else if (abs(local_frustration_data.local_integrated_frustration) < local_frustration_threshold) {
       // do nothing, still acceptable
       // Make sure neigh_weight is active
-      neighbour_weight = neigh_weight;
+      neigh_weight = 1;
       Serial.print(motor);
-      Serial.println(" is playing collective, neighbour weight: ");
+      Serial.println(" plays collective below local frustration threshold, neighbour weight: ");
       Serial.println(neigh_weight);
     }
     else if (abs(local_frustration_data.local_integrated_frustration) > local_frustration_threshold) {
       // frustration level not acceptable
       neigh_weight = 0; // start with on/off and can then decide a proportion of it depending on magnitude of frustration?
       Serial.print(motor);
-      Serial.print(" is playing selfish, neighbour weight: ");
+      Serial.print(" plays selfish, neighbour weight: ");
       Serial.println(neigh_weight);
     }
   }
   else {
     // function not active, do nothing
-    Serial.print("Selfish function disabled for Motor ");
-    Serial.println(motor);
+    Serial.print("Selfish function disabled");
   }
 return local_frustration_data;
 }
