@@ -140,7 +140,7 @@ float local_recovery_threshold = local_demand * 2 ; // lower to prevent oscillat
 float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 int local_weight = 1; // how much local affects bhv, 0 = OFF
-int neigh_weights[3] = {1, 1, 1}; // how much neigh affects bhv, 0 = OFF; for each motor will be changed
+int neigh_weights[3] = {1, 1, 1}; // neigh influence, 0 = OFF; for each motor will be changed by selfish and pass through global check 
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
@@ -162,7 +162,7 @@ bool beingSelfish = false; // whether lower-system only focuses on local demand,
 // like in simulation, we want to record variable for each module
 #define MAX_RESULTS 35 // agree with memory capacity (~70%),try to take as much as possible
 #define MOTOR_VARIABLES 10 // what variable tracking?
-#define FRUSTRATION_VARIABLES 3
+#define FRUSTRATION_VARIABLES 5
 float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
 float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
@@ -303,26 +303,56 @@ void loop() {
     unsigned long timeStep_starts = micros();
 
     current_global_state = 0; // reset the global state
+    ExperimentData motor0_data;
+    ExperimentData motor1_data;
+    ExperimentData motor2_data;
 
-    //Motors update + extracting local error & global state
-    ExperimentData motor0_data = updateMotor(0, neigh_weights[0]);
+    ///////////// MOTOR 0 UPDATE + extracting local error & state
+    if (timeStep == 1){ // if first step, take the default value of neigh_weight, then take global check value
+      // could do in a loop for all motors but would need to update selfishness right after each... not after all. 
+      ExperimentData motor0_data = updateMotor(0, neigh_weights[0]);
+    }
+    else {
+      ExperimentData motor0_data = updateMotor(0, frustration_results[results_index][2]);
+    }
+    motor0_results[results_index][1] = motor0_data.newVoltage; // state of M0 for global
+    motor0_results[results_index][3] = motor0_data.local_err_after_actuation; // local error of M0 for selfishness
     ExperimentData motor0_frustration_local = being_selfish(0, neigh_weights[0], motor0_data.local_err_after_actuation, local_integrated_error_motors[0], local_integrated_frustration_motors[0]);
-    motor0_results[results_index][1] = motor0_data.newVoltage; // state of M0
-    motor0_results[results_index][3] = motor0_data.local_err_after_actuation; // local error of M0
-    ExperimentData motor1_data = updateMotor(1, neigh_weights[1]);
-    ExperimentData motor1_frustration_local = being_selfish(1, neigh_weights[1], motor1_data.local_err_after_actuation, local_integrated_error_motors[1], local_integrated_frustration_motors[1]);
-    motor1_results[results_index][1] = motor1_data.newVoltage; // State of M1
-    motor1_results[results_index][3] = motor1_data.local_err_after_actuation; // local error of M1
-    ExperimentData motor2_data = updateMotor(2, neigh_weights[2]);
-    ExperimentData motor2_frustration_local = being_selfish(2, neigh_weights[2], motor2_data.local_err_after_actuation, local_integrated_error_motors[2], local_integrated_frustration_motors[2]);
-    motor2_results[results_index][1] = motor2_data.newVoltage; // state of M2
-    motor2_results[results_index][3] = motor2_data.local_err_after_actuation; // local error of M2
+    motor0_results[results_index][9] = motor0_frustration_local.neigh_weight; // get the local neigh weight from selfishness
 
-    // local and global modulation
+    ///////////// MOTOR 1 UPDATE + extracting local error & state
+    if (timeStep == 1){ // if first step, take the default value of neigh_weight, then take global check value
+      ExperimentData motor1_data = updateMotor(1, neigh_weights[1]);
+    }
+    else {
+      ExperimentData motor1_data = updateMotor(1, frustration_results[results_index][3]);
+    }
+    motor1_results[results_index][3] = motor1_data.local_err_after_actuation; // local error of M1
+    motor1_results[results_index][1] = motor1_data.newVoltage; // State of M1
+    ExperimentData motor1_frustration_local = being_selfish(1, neigh_weights[1], motor1_data.local_err_after_actuation, local_integrated_error_motors[1], local_integrated_frustration_motors[1]);
+    motor1_results[results_index][9] = motor1_frustration_local.neigh_weight;
+
+    ///////////// MOTOR 2 UPDATE + extracting local error & state
+    if (timeStep == 1){ // if first step, take the default value of neigh_weight, then take global check value
+      ExperimentData motor2_data = updateMotor(2, neigh_weights[2]);
+    }
+    else {
+      ExperimentData motor2_data = updateMotor(2, frustration_results[results_index][4]);
+    }
+    motor2_results[results_index][3] = motor2_data.local_err_after_actuation; // local error of M2
+    motor2_results[results_index][1] = motor2_data.newVoltage; // state of M2
+    ExperimentData motor2_frustration_local = being_selfish(2, neigh_weights[2], motor2_data.local_err_after_actuation, local_integrated_error_motors[2], local_integrated_frustration_motors[2]);
+    motor2_results[results_index][9] = motor2_frustration_local.neigh_weight;
+
+    // Global modulation
     Serial.println("\n");
     Serial.println("&&&&&&&&&&&&  Entering GLOBAL &&&&&&&&&&&");
-    ExperimentData frustration_global = global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1]);
-
+    ExperimentData frustration_global = global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1], motor0_frustration_local.neigh_weight, motor1_frustration_local.neigh_weight, motor2_frustration_local.neigh_weight);
+    frustration_results[results_index][2] = frustration_global.motor0_weight;
+    frustration_results[results_index][3] = frustration_global.motor1_weight;
+    frustration_results[results_index][4] = frustration_global.motor2_weight;
+     
+    
     unsigned long timeStep_ends = micros();
     Serial.println(timeStep_ends - timeStep_starts);
 
@@ -377,7 +407,9 @@ void loop() {
         // Store global frustration levels
         frustration_results[results_index][0] = target_global_state;
         frustration_results[results_index][1] = frustration_global.global_integrated_frustration;
-        frustration_results[results_index][2] = frustration_global.neigh_weight;
+        frustration_results[results_index][2] = frustration_global.motor0_weight;
+        frustration_results[results_index][3] = frustration_global.motor1_weight;
+        frustration_results[results_index][4] = frustration_global.motor2_weight;
 
 
         // Increment result index for next time.
@@ -442,7 +474,7 @@ void loop() {
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
-      Serial.print(frustration_results[result][2]); // Neighbour weight (higher-level function)
+      Serial.print(frustration_results[result][2]); // Neighbour weight Motor 0 (higher-level function)
       Serial.print("\n");  // Newline after Motor 
 
 
@@ -474,7 +506,7 @@ void loop() {
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
-      Serial.print(frustration_results[result][2]); // Neighbour weight (higher-level function)
+      Serial.print(frustration_results[result][3]); // Neighbour weight (higher-level function)
       Serial.print("\n");  // Newline after Motor 1
 
       // Motor 2 Data (same sample number)
@@ -505,7 +537,7 @@ void loop() {
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
-      Serial.print(frustration_results[result][2]); // Neighbour weight (higher-level function)
+      Serial.print(frustration_results[result][4]); // Neighbour weight (higher-level function)
       Serial.print("\n");  // Newline after Motor 2
     }
     // A delay to allow time for copying results
@@ -516,7 +548,7 @@ void loop() {
 
 // -------------------------------------- Higher-level function ----------------------------------------------
 
-ExperimentData global_function(float motor0_results, float motor1_results, float motor2_results) {
+ExperimentData global_function(float motor0_results, float motor1_results, float motor2_results, int motor0_weight,int motor1_weight, int motor2_weight ) {
 
   ExperimentData global_frustration_data;
   
@@ -567,9 +599,11 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
     if (beingSelfish) {
       Serial.println("OVERRULING SELFISHNESS!");
     }
-    global_frustration_data.neigh_weight = 1; // Make sure neigh_weight is reset!
+    global_frustration_data.motor0_weight = neigh_weights[0]; // Make sure neigh_weight is reset!
+    global_frustration_data.motor1_weight = neigh_weights[1];
+    global_frustration_data.motor2_weight = neigh_weights[2];
     Serial.print("Neighbour weight in global is: ");
-    Serial.println(global_frustration_data.neigh_weight);
+    Serial.println(global_frustration_data.motor0_weight); // all the same so don't care which gets printed
     beingSelfish = false; // Keeping/turning off selfishness function
   }
   else {
@@ -582,7 +616,7 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
 
 // ############################################ SELFISHNESS! ######################################################
 
-ExperimentData being_selfish(int motor, int neigh_weight, float new_local_err, float &local_integrated_error, float &local_integrated_frustration) { //
+ExperimentData being_selfish(int motor, int& neigh_weight, float new_local_err, float &local_integrated_error, float &local_integrated_frustration) { //
 
   ExperimentData local_frustration_data;
 
@@ -606,7 +640,7 @@ ExperimentData being_selfish(int motor, int neigh_weight, float new_local_err, f
     }
     else if (abs(local_frustration_data.local_integrated_frustration) < local_recovery_threshold) {
       // Recovery: Make sure neigh_weight is reset
-      local_frustration_data.neigh_weight = 1;
+      local_frustration_data.neigh_weight = neigh_weights[motor];
       Serial.print(motor);
       Serial.print(" plays collective below local recovery threshold, neighbour weight: ");
       Serial.println(local_frustration_data.neigh_weight);
@@ -614,7 +648,7 @@ ExperimentData being_selfish(int motor, int neigh_weight, float new_local_err, f
     else if (abs(local_frustration_data.local_integrated_frustration) < local_frustration_threshold) {
       // do nothing, still acceptable
       // Make sure neigh_weight is active
-      local_frustration_data.neigh_weight = 1;
+      local_frustration_data.neigh_weight = neigh_weights[motor];
       Serial.print(motor);
       Serial.println(" plays collective below local frustration threshold, neighbour weight: ");
       Serial.println(local_frustration_data.neigh_weight);
