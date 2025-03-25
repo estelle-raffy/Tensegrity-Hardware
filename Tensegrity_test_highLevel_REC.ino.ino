@@ -692,6 +692,8 @@ ExperimentData being_selfish(int motor, float new_local_err, float local_integra
   else {
     // function not active, do nothing
     Serial.println("Selfish function disabled");
+    neigh_weights[motor] = 1.0; // so we print the weights being active, or else it will print as 0 (or last active?)
+    local_frustration_data.neigh_weight = neigh_weights[motor]; 
   }
   return local_frustration_data;
 }
