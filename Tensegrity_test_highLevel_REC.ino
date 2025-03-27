@@ -1,857 +1,960 @@
-# 3-level system (mechanical, module-level, system-level)
-# hard-coded lists for middle level 'modules' (triangles) representation
-# Module 3 ONLY gets info about higher goal (x_coordinate target in space, 'target_position')
-# 'current_position' as updated body_4 x_coordinate (rightmost circle, module 3)
-# Module 1 and 2 only get local information (local_demand + neighbour_condition) in LENGTH 
-# 'local_demand', corresponds to total length of a module's springs (sum passive springs + actuator) 
-# 'neighbour_condition' as global variable 1 or -1...
-#...(higher constraint, modules try to get different or similar springs length, respectively)
-
-# Being_selfish function controls neighbour weights of modules 1 & 2 ==> if error > frustration level, play selfish (local demand only)
-# Module 3 also can turn selfishness on/off depending on global frustration
-
-import pygame
-import pymunk
-import pymunk.pygame_util
-import math
-import os
-import time
-import openpyxl
-from openpyxl import Workbook
-
-pygame.init()
-
-#Make a pygame window
-WIDTH, HEIGHT = 900, 590
-window = pygame.display.set_mode((WIDTH, HEIGHT))
-
-
-# list of colors
-GREEN = (0, 255, 0),  # Green
-BLUE = (0, 0, 255),  # Blue
-YELLOW = (255, 255, 0),  # Yellow
-MAGENTA = (255, 0, 255)   # Magenta
-
-#draw function
-def draw(space, window, draw_options):
-    window.fill((255, 255, 255))
-    space.debug_draw(draw_options)# may override the colors 
-    pygame.display.flip()
-
-#Boundaries
-def create_boundaries(space, width, height):
-    rects = [
-        [(width/2, height - 10), (width, 20)],  # Floor
-        [(width/2, 10), (width, 20)],  # Ceiling
-        [(10, height/2), (20, height)],  # Left wall
-        [(width - 10, height/2), (20, height)]  # Right wall
-    ]
-
-    for pos, size in rects:
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        body.position = pos
-        shape = pymunk.Poly.create_box(body, size)
-        shape.elasticity = 0
-        shape.friction = 0.1
-        space.add(body, shape)
-
-def create_system (space, mass, damping, stiffness):
-
-    global module1, module2, module3
-    global passive_springs
-    global actuators
-    global bodies
-
-    module1 = []
-    module2 = []
-    module3 = []
-    passive_springs = []
-    actuators = []
-    bodies = []
-    
-     # Screen dimensions and floor offset
-    SCREEN_WIDTH = 900
-    SCREEN_HEIGHT = 590
-    FLOOR_OFFSET = 40
-
-    # Bodies and circles for the first triangle (Module 1)
-    body1 = pymunk.Body(body_type=pymunk.Body.STATIC)
-    body1_x_position = SCREEN_WIDTH / 2 - 350 #100
-    body2_y_position = SCREEN_HEIGHT - FLOOR_OFFSET #550
-    body1.position = (body1_x_position, body2_y_position)
-    circle1 = pymunk.Circle(body1, body_diameter)
-    #circle1.mass = mass
-    circle1.friction = friction_bodies
-    circle1.elasticity = elasticity_bodies
-    module1.append(body1)
-
-    body2 = pymunk.Body()
-    body2.position = (SCREEN_WIDTH / 2 - 250 , SCREEN_HEIGHT - FLOOR_OFFSET)# 200, 550
-    circle2 = pymunk.Circle(body2, body_diameter)
-    circle2.mass = mass
-    circle2.friction = friction_bodies
-    circle2.elasticity = elasticity_bodies
-    module1.append(body2)
-    module2.append(body2)
-    module3.append(body2)
-
-    body3 = pymunk.Body()
-    body3.position = (SCREEN_WIDTH / 2 - 300, SCREEN_HEIGHT - FLOOR_OFFSET - 86.6)# 150, 463.3
-    circle3 = pymunk.Circle(body3, body_diameter)
-    circle3.mass = mass
-    circle3.friction = friction_bodies
-    circle3.elasticity = elasticity_bodies
-    module1.append(body3)
-    module2.append(body3)
-
-    # Body and circle for the second triangle (Module 2)
-    body5 = pymunk.Body()
-    body5.position = (SCREEN_WIDTH / 2 - 200 , SCREEN_HEIGHT - FLOOR_OFFSET - 86.6) #250, 463.3
-    circle5 = pymunk.Circle(body5, body_diameter)
-    circle5.mass = mass
-    circle5.friction = friction_bodies
-    circle5.elasticity = elasticity_bodies
-    module2.append(body5)
-    module3.append(body5)
-
-    # Body and circle for the third triangle (Module 3)
-    body4 = pymunk.Body()
-    body4_x_position =  SCREEN_WIDTH / 2 - 150 # x_pos 300
-    body4_y_position = SCREEN_HEIGHT - FLOOR_OFFSET # y_pos 550
-    body4.position = ( body4_x_position,body4_y_position)
-    circle4 = pymunk.Circle(body4, body_diameter)
-    circle4.mass = mass
-    circle4.friction = friction_bodies
-    circle4.elasticity = elasticity_bodies
-    module3.append(body4)
-
-    print("Body 4 starting position: ")
-    print(body4_x_position, body4_y_position)
-
-    # Anchor points in the middle
-    anch1 = (0, 0)
-    anch2 = (0, 0)
-    anch3 = (0, 0)
-    anch4 = (0, 0)
-    anch5 = (0, 0)
-
-    # Spring joints for the first triangle (Module 1)
-    joint1 = pymunk.constraints.DampedSpring(body1, body3, anch1, anch3, rest_length=100, stiffness=stiffness, damping=damping)
-    module1.append(joint1)
-    passive_springs.append(joint1)
-    joint2 = pymunk.constraints.DampedSpring(body3, body2, anch3, anch2, rest_length=100, stiffness=stiffness, damping=damping)
-    module1.append(joint2)
-    module2.append(joint2)
-    passive_springs.append(joint2)
-    actuator1 = pymunk.constraints.DampedSpring(body1, body2, anch1, anch2, rest_length=100, stiffness=stiffness, damping=damping)
-    module1.append(actuator1)
-    actuators.append(actuator1)
-
-    # Adding the new joints and actuators for the second triangle (Module 2)
-    joint3 = pymunk.constraints.DampedSpring(body2, body5, anch3, anch5, rest_length=100, stiffness=stiffness, damping=damping)
-    module2.append(joint3)
-    module3.append(joint3)
-    passive_springs.append(joint3)
-    actuator2 = pymunk.constraints.DampedSpring(body3, body5, anch2, anch5, rest_length=100, stiffness=stiffness, damping=damping)
-    module2.append(actuator2)
-    actuators.append(actuator2)
-
-    # Adding the new joints and actuators for the third triangle (Module 3)
-    joint4 = pymunk.constraints.DampedSpring(body5, body4, anch5, anch4, rest_length=100, stiffness=stiffness, damping=damping)
-    module3.append(joint4)
-    passive_springs.append(joint4)
-    actuator3 = pymunk.constraints.DampedSpring(body2, body4, anch2, anch4, rest_length=100, stiffness=stiffness, damping=damping)
-    module3.append(actuator3)
-    actuators.append(actuator3)
-
-    #For easier indexing 
-    #module1 = body1, body2, body3, joint1, joint2, actuator1
-    #module2 = body2, body3, body5, joint2, joint3, actuator2
-    #module3 = body2, body5, body4, joint3, joint4, actuator3
-
-
-    #passive_springs = joint1, joint2, joint3, joint4
-    #actuators = actuator1, actuator2, actuator3
-
-    # Add all bodies, circles, and joints to the space
-    space.add(body1, circle1, body2, circle2, body3, circle3, body4, circle4, body5, circle5, 
-              joint1, joint2, actuator1, joint3, joint4, actuator2, actuator3)
-
-def create_fixed_target(space, global_target_x, global_target_y):
-    body = pymunk.Body(body_type=pymunk.Body.STATIC)
-    body_x_position = global_target_x # can change position (default 700)
-    body_y_position = global_target_y
-    body.position = (body_x_position, body_y_position)
-    target = pymunk.Circle(body, 20)
-    #target.color = GREEN
-    space.add(body, target)
-
-    return body_x_position, body_y_position
-
-def test_stable_state(step): #increment all actuators length by 1 and see if stable at target location
-    
-    # Always retrieve positions before using 
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body1()
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body2()
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body3()
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body4()
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body4()
-
-    # Elongate all actuators by step
-    actuator1 = actuators[0]
-    actuator2 = actuators[1]
-    actuator3 = actuators[2]
-    
-    actuator1.rest_length += step
-    actuator2.rest_length += step
-    actuator3.rest_length += step
-
-    # Get new position & convert to MatLab values 
-
-    body1_x, body1_y = get_current_position_body1()
-    body1_matlab_pos_x = body1_x - 300
-    body1_matlab_pos_y = (body1_y  - 550) * (-1)
-    #print(body1_matlab_pos_x, body1_matlab_pos_y)
-
-    body2_x, body2_y = get_current_position_body2()
-    body2_matlab_pos_x = body2_x - 300
-    body2_matlab_pos_y = (body2_y  - 550) * (-1)
-
-    body3_x, body3_y = get_current_position_body3()
-    body3_matlab_pos_x = body3_x - 300
-    body3_matlab_pos_y = (body3_y  - 550) * (-1)
-
-    body4_x, body4_y = get_current_position_body4()
-    body4_matlab_pos_x = body4_x - 300
-    body4_matlab_pos_y = (body4_y  - 550) * (-1)
-    #print(body4_matlab_pos_x, body4_matlab_pos_y)
-
-    body5_x, body5_y = get_current_position_body5()
-    body5_matlab_pos_x = body5_x - 300
-    body5_matlab_pos_y = (body5_y  - 550) * (-1)
-
-    return body1_matlab_pos_x, body1_matlab_pos_y, body2_matlab_pos_x, body2_matlab_pos_y, body3_matlab_pos_x, body3_matlab_pos_y, body4_matlab_pos_x, body4_matlab_pos_y, body5_matlab_pos_x, body5_matlab_pos_y
-    
-def get_current_position_body4(): # higher-goal 
-
-    body4_position = module3[2]
-    body4_current_pos_x = body4_position.position.x
-    body4_current_pos_y = body4_position.position.y
-    
-    return body4_current_pos_x, body4_current_pos_y
-
-def get_current_position_body1():
-
-    body1_position = module1[0]
-    body1_current_pos_x = body1_position.position.x
-    body1_current_pos_y = body1_position.position.y
-
-    body1_matlab_pos_x = body1_current_pos_x - 300
-    body1_matlab_pos_y = (body1_current_pos_y  - 550) * (-1)
-    
-    return body1_matlab_pos_x, body1_matlab_pos_y
-
-def get_current_position_body2():
-
-    body2_position = module1[1]
-    body2_current_pos_x = body2_position.position.x
-    body2_current_pos_y = body2_position.position.y
-    
-    body2_matlab_pos_x = body2_current_pos_x - 300
-    body2_matlab_pos_y = (body2_current_pos_y  - 550) * (-1)
-    
-    return body2_matlab_pos_x, body2_matlab_pos_y
-
-def get_current_position_body3():
-
-    body3_position = module1[2]
-    body3_current_pos_x = body3_position.position.x
-    body3_current_pos_y = body3_position.position.y
-
-    body3_matlab_pos_x = body3_current_pos_x - 300
-    body3_matlab_pos_y = (body3_current_pos_y  - 550) * (-1)
-    
-    return body3_matlab_pos_x, body3_matlab_pos_y
-
-def get_current_position_body5():
-
-    body5_position = module3[1]
-    body5_current_pos_x = body5_position.position.x
-    body5_current_pos_y = body5_position.position.y
-    
-    body5_matlab_pos_x = body5_current_pos_x - 300
-    body5_matlab_pos_y = (body5_current_pos_y  - 550) * (-1)
-    
-    return body5_matlab_pos_x, body5_matlab_pos_y
-    
-def m1_bigger_than_m2(step):
-
-    spring1 = passive_springs[0]
-    spring2 = passive_springs[1]
-    actuator1 = actuator[0]
-
-    number_steps = 50
-
-    for i in range (number_steps):
-        spring1.rest_length += step 
-        spring2.rest_length += step
-        actuator1.rest_length += step
-
-    print('M1 increased by ',  number_steps, ' steps!')
-    
-    rest_length1 = spring1.rest_length
-    print("J1 rest length updated", rest_length1)
-    rest_length2 = spring2.rest_length
-    print("J2 rest length updated", rest_length2)
-    rest_length = actuator1.rest_length
-    print("A1 rest length updated", rest_length)
-    
-def m2_bigger_than_m1(step):
-    
-    spring2 = passive_springs[1]
-    spring3 = passive_springs[2]
-    actuator2 = actuators[1]
-
-    number_steps = 40
-    
-    for i in range (number_steps):
-        #spring2.rest_length += step #shared with M1 so turned off if want M2 > M1
-        spring3.rest_length += step
-        actuator2.rest_length += step
-
-    print('M2 increased by ',  number_steps, ' steps!')
-    
-    rest_length2 = spring2.rest_length
-    print("J2 rest length updated", rest_length2)
-    rest_length3 = spring3.rest_length
-    print("J3 rest length updated", rest_length3)
-    rest_length = actuator2.rest_length
-    print("A2 rest length updated", rest_length)
-
-def get_current_length(body1, body2):
-    current_length = math.sqrt((body2.position.x - body1.position.x)**2 + (body2.position.y - body1.position.y)**2)
-    return current_length
-
-def get_length_module1():
-    
-    spring1 = passive_springs[0]
-    length1 = get_current_length(spring1.a , spring1.b)
-
-    spring2 = passive_springs[1]
-    length2 = get_current_length(spring2.a , spring2.b)
-
-    actuator1 = actuators[0]
-    length  = actuator1.rest_length
-    
-    total_length = (length1 + length2 + length)
-
-    return total_length
-
-def get_length_module2():
-    
-    spring2 = passive_springs[1]
-    length2 = get_current_length(spring2.a , spring2.b)
-
-    spring3 = passive_springs[2]
-    length3 = get_current_length(spring3.a , spring3.b)
-
-    actuator2 = actuators[1]
-    length  = actuator2.rest_length
-    
-    total_length = (length2 + length3+ length)
-
-    return total_length
-
-def get_length_module3():
-    
-    spring3 = passive_springs[2]
-    length3 = get_current_length(spring3.a , spring3.b)
-
-    spring4 = passive_springs[3]
-    length4 = get_current_length(spring4.a , spring4.b)
-
-    actuator3 = actuators[2]
-    length  = actuator3.rest_length
-    
-    total_length = (length3 + length4+ length)
-
-    return total_length
-
-def being_selfish(beingSelfishM1, beingSelfishM2, M1_new_local_err, M2_new_local_err, local_threshold, 
-                  M1_local_integrated_error, M2_local_integrated_error, M1_local_frustration, M2_local_frustration,
-                  local_frustration_threshold, local_recovery_threshold, lambda_local, weight_reset):
-
-    print("CHECKING VALUE ", local_frustration_threshold)
-    
-    global Wb_M1
-    global Wb_M2
-    
-    # WORK OUT FOR M1
-    M1_local_integrated_error = M1_local_integrated_error + (M1_new_local_err - (lambda_local * M1_local_integrated_error)) * 1
-    M1_local_frustration += M1_local_integrated_error
-
-    print('M1 frustration levels: ', M1_local_frustration)
-
-    if beingSelfishM1 == 1: 
-        if abs(M1_local_frustration) < local_recovery_threshold:
-            Wb_M1 = weight_reset # should reset there or let it 0?
-            print('M1 plays collective below recovery threshold, Wb_M1: ', Wb_M1)
-        elif abs(M1_local_frustration) < local_frustration_threshold:
-            Wb_M1 = weight_reset
-            print('M1 plays collective below frustration threshold, Wb_M1: ', Wb_M1)
-        elif abs(M1_local_frustration) > local_frustration_threshold:
-            Wb_M1 = 0
-            M1_local_integrated_error = 0
-            M1_local_frustration = 0
-            print('M1 plays selfish, Wb_M1: ', Wb_M1)
-            print('FRUSTRATION THRESHOLD REACHED: Reset frustration for M1')
-    else:
-        M1_local_integrated_error = 0
-        M1_local_frustration = 0
-        print('Being_selfish is not active for M1')
-
-    # WORK OUT FOR M2
-
-    M2_local_integrated_error = M2_local_integrated_error + (M2_new_local_err - (lambda_local * M2_local_integrated_error)) * 1
-    M2_local_frustration += M2_local_integrated_error
-
-    print('M2 frustration levels: ', M2_local_frustration)
-
-    if beingSelfishM2 == 1: 
-        if abs(M2_local_frustration) < local_recovery_threshold:
-            Wb_M2 = weight_reset
-            print('M2 plays collective below recovery threshold, Wb_M2: ', Wb_M2)
-        elif abs(M2_local_frustration) < local_frustration_threshold:
-            Wb_M2 = weight_reset
-            print('M2 plays collective below frustration threshold, Wb_M2: ', Wb_M2)
-        elif abs(M2_local_frustration) > local_frustration_threshold:
-            Wb_M2 = 0
-            M2_local_integrated_error = 0
-            M2_local_frustration = 0
-            print('M2 plays selfish, Wb_M2: ', Wb_M2)
-            print('FRUSTRATION THRESHOLD REACHED: Reset frustration for M2')
-    else:
-        M2_local_integrated_error = 0
-        M2_local_frustration = 0
-        print('Being_selfish is not active for M2')
-
-    return M1_local_frustration, M2_local_frustration, beingSelfishM1, beingSelfishM2, Wb_M1, Wb_M2
-  
-    
-def local_err_red_module1 (local_demand, local_threshold, neigh_threshold_converge, neigh_threshold_diverge, step, Wa, Wb_M1, Wn_M1): 
-
-    # Update M1 and M2 total lengths before using them
-    M1_total_length = get_length_module1()
-    M2_total_length = get_length_module2()
-    #M3_total_length = get_length_module3()
-
-    print('M1 total length before step: ', M1_total_length)
-    print('M2 total length before step: ', M2_total_length)
-    #print('M3 total length before step: ', M3_total_length)
-
-    actuation_signal_elongates = 0
-    actuation_signal_shortens = 0 
-    
-    # Lower-level err-red
-    local_err_red = local_demand - M1_total_length 
-    print ('************ M1 local error before step: ',local_err_red)
-    local_adj = Wa * step 
-
-    # LOCAL ACTUATION SIGNAL
-    actuator1 = module1[5]
-
-    if abs(local_err_red) < local_threshold:
-        print("--------------> M1 LOCAL DEMAND ACHIEVED")
-    elif local_err_red > 0:
-        actuation_signal_elongates += local_adj 
-        print('M1 increases by', local_adj, ' to local')
-    elif local_err_red < 0:
-        actuation_signal_shortens += local_adj 
-        print('M1 decreases by', local_adj,' to local')
-    else :
-        print('M1 LOCAL ISSUE DETECTED')
-
-    print('actuation_signal_elongates: ', actuation_signal_elongates)
-    print('actuation_signal_shortens: ', actuation_signal_shortens)
-    
-    # NEIGHBOUR ACTUATION SIGNAL 
-    neigh_diff = M1_total_length - M2_total_length
-    #neigh_diff = M1_total_length - M3_total_length
-    print ('************* M1 neighbour difference: ',neigh_diff)
-    neigh_adj = Wb_M1 * step
-
-    if Wn_M1 == -1: # converge
-        print("inif-block, CHECKING WN_M1 ", Wn_M1)
-        if abs(neigh_diff) < neigh_threshold_converge:
-            print('M1 NEIGHBOUR ACHIEVED')
-        elif neigh_diff > 0: #bigger than M2
-            actuation_signal_shortens += neigh_adj
-            print('M1 decreases by ', neigh_adj, ' to converge')
-        elif neigh_diff < 0: # smaller than M2
-            actuation_signal_elongates += neigh_adj
-            print('M1 increase by ', neigh_adj, ' to converge')
-    elif Wn_M1 == 1: # diverge, but if neigh_diff = 0, doesn't move... 
-        if abs(neigh_diff) < neigh_threshold_diverge:    
-            if neigh_diff > 0 : #bigger than M2
-                actuation_signal_elongates += neigh_adj
-                print('M1 increases by ', neigh_adj, ' to diverge')
-            if neigh_diff < 0 : # smaller than M2 
-                actuation_signal_shortens += neigh_adj
-                print('M1 decrease by ', neigh_adj, ' to diverge')
-        elif abs(neigh_diff) > neigh_threshold_diverge: 
-            print('M1 NEIGH GONE TOO FAR, NEIGH STOPS')
-        else:
-            print('Incorrect neigh_diff value')  
-    else:
-        print('M1 NEIGHBOUR ISSUE DETECTED') 
-       
-
-    ## WORKING OUT SINGLE ACTUATION SIGNAL
-    actuation_final = actuation_signal_elongates - actuation_signal_shortens
-    if actuation_final > 0:
-        actuator1.rest_length += actuation_final
-    elif actuation_final < 0 :
-        actuator1.rest_length -= abs(actuation_final)
-    else:
-        print('M1 STOPS')
-
-    print('M1 actuation final: ', actuation_final)
-    M1_new_total_length = get_length_module1()
-    print('M1 total length after step: ', M1_new_total_length)
-    new_local_err_red = local_demand - M1_new_total_length 
-    print ('######## M1 local error after step: ',new_local_err_red)
-
-    return M1_total_length, local_err_red, neigh_diff, actuation_final, M1_new_total_length, new_local_err_red 
-
-def local_err_red_module2 (local_demand, local_threshold, neigh_threshold_converge, neigh_threshold_diverge, step, Wa, Wb_M2, Wn_M2):  
-
-    # Update M1 & M2 total lengths before using them
-    M3_total_length = get_length_module3()
-    M2_total_length = get_length_module2()
-    #M1_total_length = get_length_module1()
-
-    print('M2 total length before step: ', M2_total_length)
-    print('M3 total length before step: ', M3_total_length)
-    #print('M1 total length before step: ', M1_total_length)
-
-    actuation_signal_elongates = 0
-    actuation_signal_shortens = 0 
-
-    # Lower-level err-red
-    local_err_red = local_demand - M2_total_length 
-    print ('***********M2 local error: ',local_err_red)
-    local_adj = Wa * step
-
-    #LOCAL ACTUATION SIGNAL
-    actuator2 = module2[5]
-    if abs(local_err_red) < local_threshold:
-        print('--------------> M2 LOCAL DEMAND ACHIEVED')
-    elif local_err_red > 0:
-        actuation_signal_elongates += local_adj
-        print('M2 increases by ', local_adj, ' to local')
-    elif local_err_red < 0:
-        actuation_signal_shortens += local_adj
-        print('M2 decreases by', local_adj, ' to local')
-    else :
-            print('M2 LOCAL ISSUE DETECTED')
-
-    # NEIGHBOUR ACTUATION SIGNAL  
-    neigh_diff = M2_total_length - M3_total_length
-    #neigh_diff = M2_total_length - M1_total_length
-    print ('*********** M2 neighbour difference: ',neigh_diff)
-    neigh_adj = Wb_M2 * step
-
-    if Wn_M2 == -1:
-        if abs(neigh_diff) < neigh_threshold_converge:
-            print('M2 NEIGHBOUR ACHIEVED')
-        elif neigh_diff > 0: #bigger than M3
-            actuation_signal_shortens += neigh_adj
-            print('M2 decreases by ', neigh_adj, ' to converge')
-        elif neigh_diff < 0: # smaller than M3
-            actuation_signal_elongates += neigh_adj
-            print('M2 increase by ', neigh_adj, ' to converge')
-    elif Wn_M2 == 1:
-        if abs(neigh_diff) < neigh_threshold_diverge:
-            if neigh_diff > 0 : #bigger than M3
-                actuation_signal_elongates += neigh_adj
-                print('M2 increases by ', neigh_adj, ' to diverge')
-            if neigh_diff < 0 : #smaller than M3
-                actuation_signal_shortens += neigh_adj
-                print('M2 decrease by ', neigh_adj, ' to diverge')
-        elif abs(neigh_diff) < neigh_threshold_diverge:
-            print('M2 NEIGH GONE TOO FAR, NEIGH STOPS')
-        else:
-            print('Incorrect neigh_diff value')
-    else:
-        print('M2 NEIGHBOUR ISSUE DETECTED') 
-
-
-    ## WORKING OUT SINGLE ACTUATION SIGNAL
-    actuation_final = actuation_signal_elongates - actuation_signal_shortens
-    if actuation_final > 0:
-        actuator2.rest_length += actuation_final
-    elif actuation_final < 0:
-        actuator2.rest_length -= abs(actuation_final)
-    else:
-        print('M2 STOPS')
-
-    print('M2 actuation final: ', actuation_final)
-    M2_new_total_length = get_length_module2()
-    print('M2 total length after step: ', M2_new_total_length)
-    new_local_err_red = local_demand - M2_new_total_length 
-    print ('######## M2 local error after step: ',new_local_err_red)
-
-    return M2_total_length, local_err_red, neigh_diff, actuation_final, M2_new_total_length, new_local_err_red
-
-def global_err_red_module3 (global_target_x, global_target_y, global_threshold, global_integrated_error, global_frustration,
-                            global_frustration_threshold, global_recovery_threshold, lambda_global, beingSelfishM1, beingSelfishM2, step, Wc, weight_reset): 
-
-    global Wb_M1
-    global Wb_M2
-    
-    #Update positions
-    body4_current_pos_x, body4_current_pos_y = get_current_position_body4()
-    print ('B4 Starting position', body4_current_pos_x, body4_current_pos_y)
-    
-    # Equation
-    error = math.sqrt((global_target_x - body4_current_pos_x)**2 + (global_target_y - body4_current_pos_y)**2)# maybe should keep Wc for ajustment in moving like M1 & M2
-    print("----------------------->> global error: ", error)
-    
-    # Working out how to move
-    actuator3 = actuators[2]
-    global_adj = Wc * step
-
-    if abs(error) < global_threshold : 
-        print ('GLOBAL TARGET SUCCESS!')
-        global_integrated_error = 0
-        global_frustration = 0
-    elif error > 0:
-        actuator3.rest_length += global_adj
-        print ('Moving up to global, new actuator length: ', actuator3.rest_length)
-    elif error < 0:
-        actuator3.rest_length -= global_adj
-        print ('Moving down to global')
-    else :
-        print('GLOBAL ISSUE DETECTED')
-
-    #MODULATING SELFISHNESS
-    global_integrated_error = global_integrated_error + (error - (lambda_global * global_integrated_error)) * 1
-    global_frustration += global_integrated_error
-    print("Global frustration level: ", global_frustration)
-    print(global_recovery_threshold)
-    print(global_frustration_threshold)
-
-    if abs(global_frustration) < global_recovery_threshold:
-        print("Below global recovery")
-        if beingSelfishM1 == 0 or beingSelfishM2 == 0:
-            print("SELFISHNESS ALLOWED")
-        beingSelfishM1 = 1 # make sure it is on/back on anyway
-        beingSelfishM2 = 1
-    elif abs(global_frustration) < global_frustration_threshold:
-        print("Global frustration level still acceptable")
-    elif abs(global_frustration) > global_frustration_threshold:
-        if beingSelfishM1 == 1 or beingSelfishM2 == 1:
-            print('ABOVE FRUSTRATION THRESHOLD ==> OVERRULING SELFISHNESS!')
-        Wb_M1 = weight_reset
-        Wb_M2 = weight_reset
-        print('OVERRULING, Wb_M1: ', Wb_M1)
-        print('OVERRULING, Wb_M2: ', Wb_M2)
-        beingSelfishM1 = 0
-        beingSelfishM2 = 0
-        global_integrated_error = 0
-        global_frustration = 0
-        print('Frustration RESET')
-    else:
-        print('Error with global modulation')
-
-    print('global weights', Wb_M1, Wb_M2)
-
-    Matlab_body4_pos_x = body4_current_pos_x - 300
-    Matlab_body4_pos_y = (body4_current_pos_y  - 550) * (-1)
-
-    #print ('MATLAB: ', Matlab_body4_pos_x, Matlab_body4_pos_y)
-    
-    return Matlab_body4_pos_x, Matlab_body4_pos_y, error, global_frustration, beingSelfishM1, beingSelfishM2, Wb_M1, Wb_M2 
-
-# Main event loop
-def run(window, width, height, simulation_duration):
-
-    # Excel business
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    excel_file_path = os.path.join(script_dir, '3_triangles_LEVELS_HigherSystem.xlsx')
-        
-    run = True
-    clock = pygame.time.Clock()
-    fps = 100 # could help stability, longer simulation duration 
-    dt = 1 / fps
-    delay = 2000
-
-    # Make pymunk space
-    space = pymunk.Space()
-    space.gravity = (0, 981) #981
-
-    # Physical parameters
-    global body_diameter 
-    body_diameter = 21 #mimicking struts/cords ratio?
-    global friction_bodies
-    friction_bodies = 1 # rubber cap, considering soft Rubber-like Materials e.g., Agilus30: dymamic coeff 0.8-1.2
-    global elasticity_bodies
-    elasticity_bodies = 0 # considered rigids
-    mass = 0.38 #circles/bodies 
-    stiffness = 100 #100 for cords 
-    damping = 0.1
-
-    # LOWER-LEVEL Parameters 
-    step = 1 # default = 1
-    local_demand = 400 #target length (sum) 310
-    local_threshold = 10
-    neigh_threshold_converge = 10
-    neigh_threshold_diverge = 100
-    M1_local_frustration = 0
-    M2_local_frustration = 0
-    M1_local_integrated_error = 0
-    M2_local_integrated_error = 0
-    local_frustration_threshold = local_demand * 2 #threshold always take absolute so no need for min
-    local_recovery_threshold = local_demand * 1.5
-    lambda_local = 0.2
-    beingSelfishM1 = 1
-    beingSelfishM2 = 1 #start with lower-level control
-  
-
-    # HIGHER-LEVEL Parameters 
-    Wa = 0.33 # influence of local demand
-    Wb_M1 = 1
-    Wb_M2 = 1 # influence of neighbour condition
-    final_Wb_M1 = 1 # to track global adjustments 
-    final_Wb_M2 = 1
-    weight_reset = 1
-    Wc = 0.33 # influence of global demand
-    Wn_M1 = 1 #1 = diff NRG, -1 = same NRG
-    Wn_M2 = -1
-    global_integrated_error = 0
-    global_frustration = 0
-    lambda_global = 0.8
-
-    # Excel business
-    length_log = []
-
-    # Call the functions ==================================================
-    create_boundaries(space, width, height)
-    create_system(space, mass, damping, stiffness)
+// Records 35 MAXRESULTS (71% memory capacity) at interval 827.89ms (Timestep ~72 ), only 35 results = REC only half experiment...
+// 6000s / 827.89 = 72 but cannot collect 72 results (1/timestep), so will stop at 35. 
+// could work out a different interval: every 2 timestep: 6000/ 1656 = ~36, so longer interval may allow more results
+// ... or could do shorter experiment: 35×827.89 = ~28976 ms (29s)
+
+
+#include "Protocentral_ADS1220.h"
+#include <SPI.h>
+
+
+/***************************************************************
+
+    ADC Chip variables and configuration below
+
+
+
+ **************************************************************/
+#define PGA          1                 // Programmable Gain = 1
+#define VREF         2.048            // Internal reference of 2.048V
+#define VFSR         VREF/PGA
+#define FULL_SCALE   (((long int)1<<23)-1) // max ADC value (24-bit resolution of ADS1220)
+
+// define 'container' to return mutiple variables from update function
+struct ExperimentData {
+  float ownVoltage;
+  float neighVoltage;
+  float local_err;
+  float newVoltage;
+  float local_err_after_actuation;
+  float diff_neigh;
+  int actuation_final;
+  float local_integrated_frustration;
+  float global_integrated_frustration;
+  float neigh_weight;
+  float motor0_weight;
+  float motor1_weight;
+  float motor2_weight;
+};
+
+const int cs_pin[6]    = {10, 11, 17, 16, 15, 14}; // pins for ADC, check pins 10 and 11 actually work!
+const int drdy_pin[6]  = {2, 3, 18, 19, 20, 21};
+
+const int channel_key[4] = { MUX_SE_CH0, MUX_SE_CH1, MUX_SE_CH2, MUX_SE_CH3};
+
+// ADCs and channels per motor >> depending on how many motors test
+const int nb_motors = 3;
+
+const int motor_ADC_own_1[nb_motors] = {3, 0, 0};
+const int motor_ADC_own_2[nb_motors] = {5, 0, 1};
+const int motor_channel_own_1[nb_motors] = {0, 3, 2};
+const int motor_channel_own_2[nb_motors] = {1, 1, 1};
+const int motor_ADC_neigh_1[nb_motors] = {0, 0, 2};
+const int motor_ADC_neigh_2[nb_motors] = {5, 0, 2};
+const int motor_channel_neigh_1[nb_motors] = {1, 2, 2};
+const int motor_channel_neigh_2[nb_motors] = {2, 0, 3};
+//const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]};
+// M3 own 0-2 & 1-1 ; M3 neigh 2-2 & 2-3
+
+Protocentral_ADS1220 adc_chip[6]; // create an array of ADCs
+
+// 6 chips, each with 4 channels
+float adc_value[6][4]; // stores ADC readings
+float lpf_value[6][4]; // stored filtered ADC readings
+
+boolean CALIBRATING = true; // indicates calibration is happening
+
+volatile bool drdyIntrFlag0 = false; // these flags store whether an ADC chip has new data available
+volatile bool drdyIntrFlag1 = false;
+volatile bool drdyIntrFlag2 = false;
+volatile bool drdyIntrFlag3 = false;
+volatile bool drdyIntrFlag4 = false;
+volatile bool drdyIntrFlag5 = false;
+
+void drdyInterruptHndlr0() { //functions that set flaf to True whenever ADC chip signals new data
+  drdyIntrFlag0 = true;
+}
+void drdyInterruptHndlr1() {
+  drdyIntrFlag1 = true;
+}
+void drdyInterruptHndlr2() {
+  drdyIntrFlag2 = true;
+}
+void drdyInterruptHndlr3() {
+  drdyIntrFlag3 = true;
+}
+void drdyInterruptHndlr4() {
+  drdyIntrFlag4 = true;
+}
+void drdyInterruptHndlr5() {
+  drdyIntrFlag5 = true;
+}
+
+unsigned long adc_update_ts;
+
+void enableInterruptPin() {
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[0]), drdyInterruptHndlr0, FALLING); // links ADC's data ready pin to respective interrupt handler
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[1]), drdyInterruptHndlr1, FALLING);
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[2]), drdyInterruptHndlr2, FALLING);
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[3]), drdyInterruptHndlr3, FALLING);
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[4]), drdyInterruptHndlr4, FALLING);
+  attachInterrupt( digitalPinToInterrupt( drdy_pin[5]), drdyInterruptHndlr5, FALLING);
+}
+
+/***************************************************************
+
+    stepper motor drivers and variables below
+
+
+
+ **************************************************************/
+
+#define TEST_UPDATE_MS 10 // 6000 was default because used 6 motors??   
+#define DEFAULT_STEP_DELAY_US 350 // 150 was the fastest we can step a motor; 1800 was default ; 800 was used in check motors
+#define DEBUG false  
+
+// How fast should we step the motors?
+// We control this by making the delay between
+// steps bigger or smaller.
+unsigned long step_delay[6] = {}; // array storing the step delay for each of 6 motors
+
+// to allow us to simply toggle the step pin
+// state, we create 6 binary variables
+boolean step_pin_state[6]; // arrays of boolean values, each correspond to a motor (e.g. step pin state HIGH/LOW for each )
+boolean dir_pin_state[6];
+
+// We need to keep track of when we last updated
+// the step for each motor in microseconds (us)
+// so we create a timestamp (_ts) for each.
+unsigned long step_us_ts[6];
+
+// Pins to operate motors
+int step_pin[6] = { 45, 6, 7, 44,  4, 5};
+int dir_pin[6] = { 42, 24, 9, 41, 22, 23};
+
+int timeStep = 0;
+
+// **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
+int local_demand = 4000; // 3700 not moving!
+int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
+int neigh_threshold_converge = 10; // 40 based on data
+int neigh_threshold_diverge = 200;
+float local_integrated_error_motors[3] = {0.0, 0.0, 0.0}; // will serve as the 'old error' for the leakage
+float local_integrated_frustration_motors[3] = {0.0, 0.0, 0.0}; // cannot reach good local/neigh compromise will be integrated over time
+float local_frustration_threshold = 300; // since taking the absolute value of error, no need for min_value
+float local_recovery_threshold = 275; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
+int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
+float local_weight = 1.0; // how much local affects bhv, 0 = OFF
+float neigh_weights[3] = {1, 1, 1}; // neigh influence, 0 = OFF; for each motor will be changed by selfish and pass through global check
+float reset_neigh_weights[3] = {1, 1, 1}; // when global check turns off selfish --> reset neigh_weights to 1
+int neighbour_condition = -1; // -1 same voltage; 1 different voltage
+
+// **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
+
+// **************************************************** HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
+
+int target_global_state = 12000 ; // each motor's state close to 4000
+float current_global_state = 0; // sum of all motors voltage states
+int global_threshold = 100; // happiness range, depending on how stressed/relaxed needs to be
+float global_integrated_error = 0; // will serve as the 'old error' for the leakage
+float global_integrated_frustration = 0; // cannot reach global target state threshold
+float global_frustration_threshold = 4000; // 4000 since taking the absolute value of error, no need for min_value
+float global_recovery_threshold = 3800; // 3800 lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float lambda_global = 0.2 ; // 1 = all the error leaks out!, want a slower leak for LT effect than local
+bool beingSelfish = true; // whether lower-system only focuses on local demand, if true, then turned OFF
+
+// **************************************************** END OF HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
+
+// like in simulation, we want to record variable for each module
+#define MAX_RESULTS 35 // agree with memory capacity (<75%),try to take as much as possible
+#define MOTOR_VARIABLES 10 // what variable tracking?
+#define FRUSTRATION_VARIABLES 5
+float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
+float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
+float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
+float frustration_results[MAX_RESULTS][FRUSTRATION_VARIABLES]; // global integrated frustration + neighbour weight
+int results_index; // track position of results in array from 0 to MAX_RESULTS
+
+// State where motors should run/stop
+# define STATE_RUNNING_EXPERIMENT  0
+# define STATE_FINISHED_EXPERIMENT 1
+int state;
+
+// Time stamp to track whether the experiment
+// duration has elapsed.
+unsigned long experiment_start_ts;
+# define EXPERIMENT_END_MS 60000 // 60 seconds
+
+// We can try to automate the time interval
+// of storing results.
+unsigned long record_results_ts;
+unsigned long results_interval_ms;
+
+float convertToMilliV(int32_t i32data)
+{
+  float value = (float)((i32data * VFSR * 1000) / FULL_SCALE);
+  if ( DEBUG) Serial.print("convertToMilliV: ");
+  if ( DEBUG) Serial.println( value, 4);
+  return value;
+}
+
+void calibrate_all_adcs(int which) {
+
+  // Only run the following code if we have
+  // been asked to read a sensible chip
+  // number (e.g. 0,1,2,3,4,5)
+  if ( which >= 0 && which < 6 ) {
+
+    // read each channel for this chip
+    int32_t reading;
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH0);
+    adc_value[ which ][0] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH1);
+    adc_value[ which ][1] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH2);
+    adc_value[ which ][2] = convertToMilliV(reading);
+
+    reading = adc_chip[which].Read_SingleShot_SingleEnded_WaitForData(MUX_SE_CH3);
+    adc_value[ which ][3] = convertToMilliV(reading);
+
+    for ( int i = 0; i < 4; i++ ) {
+
+      //if not calibrating, apply extra check: if the latest reading is very extreme and filtering it out so it doesn't affect the filter
+      if ( CALIBRATING == false ) {
+
+        // not calibrating, did the value make an unusual big jump
+        if ( abs(adc_value[which][i]) < (lpf_value[which][i] * 50 ) ) { // if reading less than 50 times previous filtered value, then fine. if not, out so avoiding updating filter with these!
+          // no, so update low pass filter
+          lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ) ; //Exponential Moving average: New filtered value = (old filtered value*0.9) + (New ADC value*0.1)
+          // the 0.9 weight gives more importance to past readings (smoothing the signal through history) and slow 0.1 adaptation to new readings
+        }
+      } else {
+
+        lpf_value[which][i] = ( lpf_value[which][i] * 0.9 ) + ( adc_value[which][i] * 0.1 ); // if calibration happening, always apply filter: no extreme jumps during calibration
+
+      } // end of calibrating
+
+      Serial.print("Calibration readings are: ");
+      Serial.print( adc_value[which][i] );
+      Serial.print(",");
+    } // end of channel 0-3
+
+  } // end of which < 6
+} // end of function
+
+
+void setup() {
+
+  results_index = 0;
+  results_interval_ms = 426; // = 1 timestep ~426.248ms
+
+  // enable and configure each adc chip
+  for ( int i = 0; i < 6; i++ ) {
+    adc_chip[i].begin(cs_pin[i], drdy_pin[i]);
+    adc_chip[i].set_data_rate(DR_330SPS); // sets a data rate of 330 samples/sec and gain of 1
+    adc_chip[i].set_pga_gain(PGA_GAIN_1);
+    adc_chip[i].set_VREF (1 << 6); //3 --> see notes input voltage to cord and ADC matching
+
+    // Set initial adc values read to 0
+    for ( int j = 0; j < 4; j++ ) {
+      adc_value[i][j] = 0;
+      lpf_value[i][j] = 0;
+    }
+  }
+
+  // Do some initial readings to setup the low
+  // pass filter
+  for ( int i = 0; i < 100; i++ ) { // read ADC 100 times for calibration; LPF = average previous and current values to smooth out noise.
+    for ( int chip = 2; chip < 6; chip++ ) {
+      calibrate_all_adcs( chip );
+    }
+    delay(1);
+  }
+  CALIBRATING = false; // indicate that calibration has been done
+
+  // Initialise motors
+  // Initialise step delay to default value
+  // and set pins as outputs
+  for ( int i = 0; i < 6; i++ ) {
+    step_delay[ i ] = DEFAULT_STEP_DELAY_US;
+    step_us_ts[i] = micros();
+    pinMode( step_pin[i], OUTPUT );
+    pinMode( dir_pin[i], OUTPUT );
+    digitalWrite( dir_pin[i], LOW );
+    digitalWrite( step_pin[i], LOW );
+    step_pin_state[i] = HIGH;
+    dir_pin_state[i] = HIGH;
+  }
+
+  delay(100);
+
+  state = STATE_RUNNING_EXPERIMENT;
+
+  Serial.begin(9600);
+
+  experiment_start_ts = millis();
+  record_results_ts = millis();
+  adc_update_ts = millis();
+}
+
+//==================================== MAIN LOOP ==============================================================
+void loop() {
+
+  if (state == STATE_RUNNING_EXPERIMENT) {
+
+    timeStep += 1;
+    if ( DEBUG )Serial.print("***************************************************************timeStep ");
+    if ( DEBUG )Serial.println(timeStep);
+
+    unsigned long timeStep_starts = micros();
+
+    current_global_state = 0; // reset the global state
+    ExperimentData motor0_data; // 0
+    ExperimentData motor1_data;
+    ExperimentData motor2_data;
+
+    ///////////// MOTOR 1 UPDATE + extracting local error & state
+    motor0_data = updateMotor(0);
+    motor0_results[results_index][1] = motor0_data.newVoltage; // state of M0 for global
+    motor0_results[results_index][3] = motor0_data.local_err_after_actuation; // local error of M0 for selfishness
+    ExperimentData motor0_frustration_local = being_selfish(0, motor0_data.local_err_after_actuation, local_integrated_error_motors[0], local_integrated_frustration_motors[0]);
+    motor0_results[results_index][9] = motor0_frustration_local.neigh_weight; // get the local neigh weight from selfishness
+
+    ///////////// MOTOR 1 UPDATE + extracting local error & state
+
+    motor1_data = updateMotor(1);
+    motor1_results[results_index][3] = motor1_data.local_err_after_actuation; // local error of M1
+    motor1_results[results_index][1] = motor1_data.newVoltage; // State of M1
+    ExperimentData motor1_frustration_local = being_selfish(1, motor1_data.local_err_after_actuation, local_integrated_error_motors[1], local_integrated_frustration_motors[1]);
+    motor1_results[results_index][9] = motor1_frustration_local.neigh_weight;
+
+    ///////////// MOTOR 2 UPDATE + extracting local error & state
+
+    motor2_data = updateMotor(2);
+    motor2_results[results_index][3] = motor2_data.local_err_after_actuation; // local error of M2
+    motor2_results[results_index][1] = motor2_data.newVoltage; // state of M2
+    ExperimentData motor2_frustration_local = being_selfish(2, motor2_data.local_err_after_actuation, local_integrated_error_motors[2], local_integrated_frustration_motors[2]);
+    motor2_results[results_index][9] = motor2_frustration_local.neigh_weight;
+
+    // Global modulation
+    if ( DEBUG ) Serial.println("\n");
+    if ( DEBUG ) Serial.println("&&&&&&&&&&&&  Entering GLOBAL &&&&&&&&&&&");
+    ExperimentData frustration_global = global_function(motor0_results[results_index][1], motor1_results[results_index][1], motor2_results[results_index][1]);
+    frustration_results[results_index][2] = frustration_global.motor0_weight;
+    frustration_results[results_index][3] = frustration_global.motor1_weight;
+    frustration_results[results_index][4] = frustration_global.motor2_weight;
+
+
+    unsigned long timeStep_ends = micros();
+    Serial.println(timeStep_ends - timeStep_starts);
+
+
+    unsigned long elapsed_time;
+    elapsed_time = millis() - record_results_ts;
+
+    if (elapsed_time > results_interval_ms) {
+      // Move time stamp forwards for next iteration.
+      record_results_ts = millis();
+
+      // Let's be safe and check we haven't
+      // filled up the results array already.
+      if (results_index < MAX_RESULTS) {
+        // Store motor 0 results & frustration
+        motor0_results[results_index][0] = local_demand;
+        motor0_results[results_index][1] = motor0_data.ownVoltage;
+        motor0_results[results_index][2] = motor0_data.neighVoltage;
+        motor0_results[results_index][3] = motor0_data.local_err;
+        motor0_results[results_index][4] = motor0_data.diff_neigh;
+        motor0_results[results_index][5] = motor0_data.actuation_final;
+        motor0_results[results_index][6] = motor0_data.newVoltage;
+        motor0_results[results_index][7] = motor0_data.local_err_after_actuation;
+        motor0_results[results_index][8] = motor0_frustration_local.local_integrated_frustration;
+        motor0_results[results_index][9] = motor0_frustration_local.neigh_weight;
+
+        // Store motor 1 results
+        motor1_results[results_index][0] = local_demand;
+        motor1_results[results_index][1] = motor1_data.ownVoltage;
+        motor1_results[results_index][2] = motor1_data.neighVoltage;
+        motor1_results[results_index][3] = motor1_data.local_err;
+        motor1_results[results_index][4] = motor1_data.diff_neigh;
+        motor1_results[results_index][5] = motor1_data.actuation_final;
+        motor1_results[results_index][6] = motor1_data.newVoltage;
+        motor1_results[results_index][7] = motor1_data.local_err_after_actuation;
+        motor1_results[results_index][8] = motor1_frustration_local.local_integrated_frustration;
+        motor1_results[results_index][9] = motor1_frustration_local.neigh_weight;
+
+        // Store motor 2 results
+        motor2_results[results_index][0] = local_demand;
+        motor2_results[results_index][1] = motor2_data.ownVoltage;
+        motor2_results[results_index][2] = motor2_data.neighVoltage;
+        motor2_results[results_index][3] = motor2_data.local_err;
+        motor2_results[results_index][4] = motor2_data.diff_neigh;
+        motor2_results[results_index][5] = motor2_data.actuation_final;
+        motor2_results[results_index][6] = motor2_data.newVoltage;
+        motor2_results[results_index][7] = motor2_data.local_err_after_actuation;
+        motor2_results[results_index][8] = motor2_frustration_local.local_integrated_frustration;
+        motor2_results[results_index][9] = motor2_frustration_local.neigh_weight;
+
+
+        // Store global frustration levels
+        frustration_results[results_index][0] = target_global_state;
+        frustration_results[results_index][1] = frustration_global.global_integrated_frustration;
+        frustration_results[results_index][2] = frustration_global.motor0_weight;
+        frustration_results[results_index][3] = frustration_global.motor1_weight;
+        frustration_results[results_index][4] = frustration_global.motor2_weight;
+
+
+        // Increment result index for next time.
+        results_index++;
+        if ( DEBUG ) Serial.print("Results Index: ");
+        if ( DEBUG ) Serial.println(results_index);
+
+      } else {
+        // If RESULTS_MAX has been reached, the experiment is finished.
+        state = STATE_FINISHED_EXPERIMENT;
+        return;
+      }
+    }
+
+    // Has the experiment duration been reached?
+    elapsed_time = millis() - experiment_start_ts;
+    if (elapsed_time > EXPERIMENT_END_MS) {
+      // Transition to finished state
+      state = STATE_FINISHED_EXPERIMENT;
+      return;
+    }
+
+  } else if (state == STATE_FINISHED_EXPERIMENT) {
+
+    // Once the experiment is finished, stop the motors
+    moveStepsDown(0, 0);
+    moveStepsDown(1, 0);
+    moveStepsDown(2, 0);
+
+    // Loop through the results and print them
+    int result;
+    Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Global Demand, Global Frustration, Gobal Neigh Weight");
+
+    for (result = 0; result < MAX_RESULTS; result++) {
+      // Print the sample number, use result + 1 for 1-based indexing
+      Serial.print(result + 1); // Print sample number (1-based indexing)
+      Serial.print(",");
+
+      // Motor 0 Data
+      Serial.print("Motor 0,");
+      Serial.print(motor0_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor0_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor0_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor0_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor0_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor0_results[result][5]); // Final Actuation for Motor 0
+      Serial.print(",");
+      Serial.print(motor0_results[result][6]); // New Voltage for Motor 0
+      Serial.print(",");
+      Serial.print(motor0_results[result][7]); // New error for Motor 0
+      Serial.print(",");
+      Serial.print(motor0_results[result][8]); // Frustration levels for Motor 0
+      Serial.print(",");
+      Serial.print(motor0_results[result][9]); // Neighbour Weight for Motor 0
+      Serial.print(",");
+      Serial.print(frustration_results[result][0]); // Global demand
+      Serial.print(",");
+      Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
+      Serial.print(",");
+      Serial.print(frustration_results[result][2]); // Neighbour weight Motor 0 (higher-level function)
+      Serial.print("\n");  // Newline after Motor
+
+
+      // Motor 1 Data (same sample number)
+      Serial.print(result + 1);  // Reprint the sample number for Motor 1
+      Serial.print(",");
+      Serial.print("Motor 1,");
+      Serial.print(motor1_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor1_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor1_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor1_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor1_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor1_results[result][5]); // Final Actuation for Motor 1
+      Serial.print(",");
+      Serial.print(motor1_results[result][6]); // New Voltage for Motor 0
+      Serial.print(",");
+      Serial.print(motor1_results[result][7]); // New Error for Motor 0
+      Serial.print(",");
+      Serial.print(motor1_results[result][8]); // Frustration levels for Motor 1
+      Serial.print(",");
+      Serial.print(motor1_results[result][9]); // Neighbour Weight for Motor 1
+      Serial.print(",");
+      Serial.print(frustration_results[result][0]); // Global demand
+      Serial.print(",");
+      Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
+      Serial.print(",");
+      Serial.print(frustration_results[result][3]); // Neighbour weight (higher-level function)
+      Serial.print("\n");  // Newline after Motor 1
+
+      // Motor 2 Data (same sample number)
+      Serial.print(result + 1);  // Reprint the sample number for Motor 2
+      Serial.print(",");
+      Serial.print("Motor 2,");
+      Serial.print(motor2_results[result][0]); // Local Demand
+      Serial.print(",");
+      Serial.print(motor2_results[result][1]); // Own Voltage
+      Serial.print(",");
+      Serial.print(motor2_results[result][2]); // Neighbour Voltage
+      Serial.print(",");
+      Serial.print(motor2_results[result][3]); // Local Error
+      Serial.print(",");
+      Serial.print(motor2_results[result][4]); // Neighbour Difference
+      Serial.print(",");
+      Serial.print(motor2_results[result][5]); // Final Actuation for Motor 2
+      Serial.print(",");
+      Serial.print(motor2_results[result][6]); // New Voltage for Motor 2
+      Serial.print(",");
+      Serial.print(motor2_results[result][7]); // New Error for Motor 2
+      Serial.print(",");
+      Serial.print(motor2_results[result][8]); // Frustration levels for Motor 2
+      Serial.print(",");
+      Serial.print(motor2_results[result][9]); // Neighbour Weight for Motor 2
+      Serial.print(",");
+      Serial.print(frustration_results[result][0]); // Global demand
+      Serial.print(",");
+      Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
+      Serial.print(",");
+      Serial.print(frustration_results[result][4]); // Neighbour weight (higher-level function)
+      Serial.print("\n");  // Newline after Motor 2
+    }
+    // A delay to allow time for copying results
+    delay(3000);
+  }
+}
+//==================================== END MAIN LOOP =========================================================
+
+// -------------------------------------- Higher-level function ----------------------------------------------
+
+ExperimentData global_function(float motor0_results, float motor1_results, float motor2_results ) {
+
+  ExperimentData global_frustration_data;
+
+  // print current state
+  float current_global_state = motor0_results + motor1_results + motor2_results;
+  if ( DEBUG )Serial.print("Current global state is ");
+  if ( DEBUG )Serial.println(current_global_state);
+
+  // get the 'new' error
+  float global_error = target_global_state - current_global_state;
+  if ( DEBUG )Serial.println("\n");
+  if ( DEBUG )Serial.print("------------------------------> Global error is ");
+  if ( DEBUG )Serial.println(global_error);
+  if ( DEBUG )Serial.println("\n");
+
+  // integrate the error
+  global_integrated_error = global_integrated_error + (global_error - (lambda_global * global_integrated_error)) * 1;
+  // global_integrated_error = old error, declared globally
+  // (lambda_global * global_integrated_error) = portion of old error to simulate 'leakage'
+  // timestep = 1
+  if ( DEBUG )Serial.print("Global integrated error is ");
+  if ( DEBUG )Serial.println(global_integrated_error);
+
+  // update global_integrated_frustration
+  global_frustration_data.global_integrated_frustration += global_integrated_error;
+  if ( DEBUG )Serial.print("GLOBAL FRUSTRATION LEVELS: ");
+  if ( DEBUG )Serial.println(global_frustration_data.global_integrated_frustration);
+
+  // WORK OUT WHAT TO DO
+  if (abs(global_error) < global_threshold) {
+    // SUCCESS, higher-level doesn't need to do anything
+    if ( DEBUG )Serial.println("GLOBAL SUCCESS ACHIEVED!");
+  }
+  else if (abs(global_frustration_data.global_integrated_frustration) < global_recovery_threshold) {
+    // Recovery: Make sure selfishness is ON or turn selfishness back on
+    if ( DEBUG )Serial.println("Below global recovery");
+    if (!beingSelfish) {
+      if ( DEBUG )Serial.println("SELFISHNESS ALLOWED");
+    }
+    beingSelfish = true; // Turning selfishness back on
+  }
+  else if (abs(global_frustration_data.global_integrated_frustration) < global_frustration_threshold) {
+    // Still acceptable, do nothing
+    if ( DEBUG )Serial.println("Frustration below global threshold acceptable");
+  }
+  else if (abs(global_frustration_data.global_integrated_frustration) > global_frustration_threshold) {
+    // Frustration too high, turn selfishness off
+    if (beingSelfish) {
+      if ( DEBUG )Serial.println("OVERRULING SELFISHNESS!");
+    }
+    // reset the weights in the array to 1
+    neigh_weights[0] = reset_neigh_weights[0];
+    neigh_weights[1] = reset_neigh_weights[1];
+    neigh_weights[2] = reset_neigh_weights[2];
+    beingSelfish = false; // Keeping/turning off selfishness function
+  }
+  else {
+    if ( DEBUG )Serial.println("Error global function");
+  }
+
+  // log the changes from global function
+  global_frustration_data.motor0_weight = neigh_weights[0];
+  global_frustration_data.motor1_weight = neigh_weights[1];
+  global_frustration_data.motor2_weight = neigh_weights[2];
+  if ( DEBUG )Serial.print("Neighbour weights data finishing global are: ");
+  if ( DEBUG )Serial.print(global_frustration_data.motor0_weight);
+  if ( DEBUG )Serial.print(", ");
+  if ( DEBUG )Serial.print(global_frustration_data.motor1_weight);
+  if ( DEBUG )Serial.print(", ");
+  if ( DEBUG )Serial.println(global_frustration_data.motor2_weight);
+  return global_frustration_data;
+}
+
+// --------------------------------------- end of Higher-level function --------------------------------------
+
+// ############################################ SELFISHNESS! ######################################################
+ExperimentData being_selfish(int motor, float new_local_err, float local_integrated_error, float local_integrated_frustration) { //
+
+  ExperimentData local_frustration_data;
+  // local_frustration_data.???? = 0;
+  // local_frustration_data.???? = 0;
+  // local_frustration_data.???? = 0;
+  // local_frustration_data.???? = 0;
+
+  memset( &local_frustration_data, 0, sizeof( local_frustration_data) ); // initialize the entire structs to be full of zeros
  
-    # Set higher-level goal
-    global_target_x = 500 # 500m; 100 symmetry behind 
-    global_target_y = 450 # 550 floor, 450 AIR 
-    global_threshold = 45 # accounting for distance from edges of ball to target centre
-    create_fixed_target(space, global_target_x, global_target_y)
-    
-    global_frustration_threshold = global_threshold * 100
-    global_recovery_threshold = global_threshold * 80
+  local_integrated_error = local_integrated_error + ( new_local_err - (lambda_global * local_integrated_error));
+  local_frustration_data.local_integrated_frustration += local_integrated_error;
 
-    # Save modified target coordinates for MATLAB (making up for weird simulation boundaries and coordinates...)
-    target_x = global_target_x - 300
-    target_y = (global_target_y - 550) * (-1)
-    global_threshold_x = target_x - global_threshold
-    global_threshold_y = target_y - global_threshold
- 
-    draw_options = pymunk.pygame_util.DrawOptions(window)
+  if ( DEBUG )Serial.print("Motor ");
+  if ( DEBUG )Serial.print(motor);
+  if ( DEBUG )Serial.print(" LOCAL FRUSTRATION LEVELS: ");
+  if ( DEBUG )Serial.println(local_frustration_data.local_integrated_frustration);
 
-    # create difference in energy between modules
-    #m2_bigger_than_m1(step)
+  if (beingSelfish) {
+    // look at frustration to decide if shut off neighbour
+    if ( DEBUG )Serial.println("Selfishness function is on");
+    if (abs(local_frustration_data.local_integrated_frustration) < local_threshold) {
+      if ( DEBUG )Serial.print(motor);
+      if ( DEBUG )Serial.println(" LOCAL ACHIEVED! No need for selfishness");
+      //beingSelfish = false; // we may not need this, selfishness can be on and not do anything
+    }
+    else if (abs(local_frustration_data.local_integrated_frustration) < local_recovery_threshold) {
+      // Recovery: Make sure neigh_weight is reset
+      neigh_weights[motor] = reset_neigh_weights[motor];
+      local_frustration_data.neigh_weight = neigh_weights[motor];// should we only reset here?
+      if ( DEBUG )Serial.print(motor);
+      if ( DEBUG )Serial.print(" plays collective below local recovery threshold, neighbour weight: ");
+      if ( DEBUG )Serial.println(local_frustration_data.neigh_weight);
+    }
+    else if (abs(local_frustration_data.local_integrated_frustration) < local_frustration_threshold) {
+      // do nothing, still acceptable
+      // Make sure neigh_weight is active
+      neigh_weights[motor] = reset_neigh_weights[motor];
+      local_frustration_data.neigh_weight = neigh_weights[motor];
+      if ( DEBUG )Serial.print(motor);
+      if ( DEBUG )Serial.println(" plays collective below local frustration threshold, neighbour weight: ");
+      if ( DEBUG )Serial.println(local_frustration_data.neigh_weight);
+    }
+    else if (abs(local_frustration_data.local_integrated_frustration) > local_frustration_threshold) {
+      // frustration level not acceptable
+      neigh_weights[motor] = 0.0; // need to access global array, not just inside struts
+      local_frustration_data.neigh_weight = neigh_weights[motor]; // start with on/off and can then decide a proportion of it depending on magnitude of frustration?
+      if ( DEBUG )Serial.print(motor);
+      if ( DEBUG )Serial.print(" plays selfish, neighbour weight: ");
+      if ( DEBUG )Serial.println(local_frustration_data.neigh_weight);
+    }
+  }
+  else {
+    // function not active, do nothing
+    neigh_weights[motor] = reset_neigh_weights[motor]; // so we print the weights being active, or else it will print as 0 (or last active?)
+    local_frustration_data.neigh_weight = neigh_weights[motor];
+    if ( DEBUG )Serial.print(motor);
+    if ( DEBUG )Serial.print(" Selfish function disabled, neighbour weight: ");
+    if ( DEBUG )Serial.print(local_frustration_data.neigh_weight);
+  }
+  return local_frustration_data;
+}
 
-    # start simulation
-    start_time = time.time()
-    timestep = 0
-    delay_to_wait = 0 #s
-    error_global = 0
-    local_error1 = 0
-    local_error2 = 0
-    global_error3 = 0
-    
-    # Simulation loop ****************************************************
-    while run:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                run = False
-                break
+// ############################################ end of SELFISHNESS! ######################################################
 
-        current_time = time.time() - start_time
-                
-        if current_time > delay_to_wait:
-            print('========================================================> Timestep ', timestep)
-            print("Local_demand is: ", local_demand)
-            print('Global target is: ', global_target_x, global_target_y)
+// -------------------------------------- MOVING THE MOTORS FUNCTIONS ------------------------------------------
 
-            get_current_position_body1()
+void moveStepsDown(int motorIndex, int steps_to_move) {
+  int step_count = 0;
 
-            #Activate M1 
-            M1_total_length, M1_local_err, M1_neigh_diff, M1_actuation_final, M1_new_total_length, M1_new_local_err = local_err_red_module1(local_demand, local_threshold, neigh_threshold_converge, neigh_threshold_diverge, step, Wa, final_Wb_M1, Wn_M1)
-           
-            #Activate M2
-            M2_total_length, M2_local_err, M2_neigh_diff, M2_actuation_final, M2_new_total_length, M2_new_local_err = local_err_red_module2(local_demand, local_threshold, neigh_threshold_converge, neigh_threshold_diverge, step, Wa, final_Wb_M2, Wn_M2) 
+  if (steps_to_move <= 0) return; // No illogical steps
 
-            #Decide on playing collective or selfish
-            M1_local_frustration, M2_local_frustration, beingSelfishM1, beingSelfishM2, local_Wb_M1, local_Wb_M2 = being_selfish(beingSelfishM1, beingSelfishM2, M1_new_local_err, M2_new_local_err, local_threshold, M1_local_integrated_error, M2_local_integrated_error,  M1_local_frustration, M2_local_frustration,
-                  local_frustration_threshold, local_recovery_threshold, lambda_local, weight_reset)
-            
-            #Activate M3
-            body4_pos_x, body4_pos_y, global_error, global_frustration, beingSelfishM1, beingSelfishM2, final_Wb_M1, final_Wb_M2 = global_err_red_module3(global_target_x, global_target_y, global_threshold, global_integrated_error, global_frustration,
-                            global_frustration_threshold, global_recovery_threshold, lambda_global, beingSelfishM1, beingSelfishM2, step, Wc, weight_reset)
+  // Otherwise, move by the requested amount
+  while (step_count < steps_to_move) {
+    moveDown(motorIndex); // Specify motor index
+    step_count++;
+  }
+}
 
-            print('Final Wb_M1 is ', final_Wb_M1)
-            print('Final Wb_M2 is ', final_Wb_M2)
+void moveStepsUp(int motorIndex, int steps_to_move) {
+  int step_count = 0;
 
-            
-            # Get other bodies positions
+  if (steps_to_move <= 0) return; // No illogical steps
 
-            body1_pos_x, body1_pos_y = get_current_position_body1()
-            body2_pos_x, body2_pos_y = get_current_position_body2()
-            body3_pos_x, body3_pos_y = get_current_position_body3()
-            body5_pos_x, body5_pos_y = get_current_position_body5()
-            
-            timestep += 1
-            #time.sleep(10)
-            
-        draw(space, window, draw_options)
-        space.step(dt)
+  // Otherwise, move by the requested amount
+  while (step_count < steps_to_move) {
+    moveUp(motorIndex); // Specify motor index
+    step_count++;
+  }
+}
 
-        #Excel business 
-        length_log.append([current_time, target_x, target_y, global_threshold_x, global_threshold_y, body1_pos_x, body1_pos_y,
-                           body2_pos_x, body2_pos_y, body3_pos_x, body3_pos_y,
-                           body4_pos_x, body4_pos_y, body5_pos_x, body5_pos_y,
-                           local_demand, M1_total_length, M1_local_err, M1_neigh_diff, M1_actuation_final, M1_new_total_length, M1_new_local_err,
-                           M1_local_frustration, M2_total_length, M2_local_err, M2_neigh_diff, M2_actuation_final,
-                           M2_new_total_length, M2_new_local_err, M2_local_frustration, local_Wb_M1, local_Wb_M2, global_target_x, global_target_y,
-                           global_error, global_frustration, final_Wb_M1, final_Wb_M2])
+void moveDown(int motorIndex) {
+  digitalWrite(dir_pin[motorIndex], dir_pin_state[motorIndex]);
 
-        if current_time >= simulation_duration:
-            run = False
+  // TO make the motor move one step (control specific motor)
+  digitalWrite(step_pin[motorIndex], step_pin_state[motorIndex]);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US); // Adds delay
+  digitalWrite(step_pin[motorIndex], !step_pin_state[motorIndex]);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US); // Adds delay
+}
 
-        clock.tick(fps)
+void moveUp(int motorIndex) {
+  digitalWrite(dir_pin[motorIndex], !dir_pin_state[motorIndex]);
 
-    # create ad save workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.append(['current_time', 'target_x', 'target_y', 'global_threshold_x', 'global_threshold_y', 'body1_pos_x', 'body1_pos_y',
-                           'body2_pos_x', 'body2_pos_y', 'body3_pos_x', 'body3_pos_y',
-                           'body4_pos_x', 'body4_pos_y', 'body5_pos_x', 'body5_pos_y', 'local_demand',
-                           'M1_total_length', 'M1_local_err', 'M1_neigh_diff', 'M1_actuation_final', 'M1_new_total_length', 'M1_new_local_err',
-                           'M1_local_frustration', 'M2_total_length', 'M2_local_err', 'M2_neigh_diff', 'M2_actuation_final',
-                           'M2_new_total_length', 'M2_new_local_err', 'M2_local_frustration', 'local_Wb_M1', 'local_Wb_M2', 'global_target_x', 'global_target_y',
-                           'global_error', 'global_frustration','final_Wb_M1', 'final_Wb_M2'])
+  // TO make the motor move one step (control specific motor)
+  digitalWrite(step_pin[motorIndex], step_pin_state[motorIndex]);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US);
+  digitalWrite(step_pin[motorIndex], !step_pin_state[motorIndex]);
+  delayMicroseconds(DEFAULT_STEP_DELAY_US); // Adds delay
+}
 
-    for line in length_log:
-        ws.append(line)
+void read_adc_MOTOR(int motorIndex, float & ownVoltage, float & neighVoltage) {
+  ownVoltage = 0;
+  neighVoltage = 0;
 
-    wb.save(excel_file_path)
+  // Read "own" ADC values
+  const int motor_ADC_own[2] = {motor_ADC_own_1[motorIndex], motor_ADC_own_2[motorIndex]};
+  const int motor_channel_own[2] = {motor_channel_own_1[motorIndex], motor_channel_own_2[motorIndex]};
 
-    pygame.quit()
+  // Sequentially read own ADC channels
+  for (int i = 0; i < 2; i++) {
+    int adcChip = motor_ADC_own[i];   // ADC chip index
+    int channel = channel_key[ motor_channel_own[i] ] ; // ADC channel index, check printing right channels
 
-if __name__ == '__main__':
-    # Specify the simulation duration in seconds
-    simulation_duration = 60  #180
-    pygame.display.set_caption("3_triangles_err_red_LEVELSV2_HigherSystem")
+    // Ensure the ADC read is completed before continuing
+    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
+    float convertedVoltage = convertToMilliV(reading);
+    //printing without lpf
+    ownVoltage += convertedVoltage;
+    //    Serial.print("own cords converted voltage: ");
+    //    Serial.println(ownVoltage);
 
-    run(window, WIDTH, HEIGHT, simulation_duration)
+    // Apply filtering
+    //    if (!CALIBRATING) {
+    //      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) {
+    //        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+    //        Serial.println(lpf_value[adcChip][channel]);
+    //        Serial.println("CALIBRATING.............");
+    //      }
+    //    } else {
+    //      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+    //      Serial.print(";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;");
+    //      Serial.println(lpf_value[adcChip][channel]);
+    //    }
+    //
+    //    ownVoltage += lpf_value[adcChip][channel];
+    //    Serial.print("own voltage in ADC function: ");
+    //    Serial.println(ownVoltage);
 
+    // Optional: Add a small delay if needed to ensure enough time for the conversion to complete
+    delay(10); // Example: delay by 10 milliseconds, adjust as needed
+  }
 
+  // Read "neighbor" ADC values
+  const int motor_ADC_neigh[2] = {motor_ADC_neigh_1[motorIndex], motor_ADC_neigh_2[motorIndex]}; // 1,2
+  const int motor_channel_neigh[2] = {motor_channel_neigh_1[motorIndex], motor_channel_neigh_2[motorIndex]};
+
+  // Sequentially read neighbor ADC channels
+  for (int i = 0; i < 2; i++) {
+    int adcChip = motor_ADC_neigh[i];  // ADC chip index // 1
+    int channel = channel_key[ motor_channel_neigh[i] ]; // ADC channel index // 1
+
+    // Ensure the ADC read is completed before continuing
+    int32_t reading = adc_chip[adcChip].Read_SingleShot_SingleEnded_WaitForData(channel);
+    float convertedVoltage = convertToMilliV(reading);
+    //printing without lpf
+    neighVoltage += convertedVoltage;
+    //    Serial.print("neigh cords converted voltage: ");
+    //    Serial.println(neighVoltage);
+
+    //    // Apply filtering
+    //    if (!CALIBRATING) {
+    //      if (abs(convertedVoltage) < (lpf_value[adcChip][channel] * 50)) {
+    //        lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+    //      }
+    //    } else {
+    //      lpf_value[adcChip][channel] = (lpf_value[adcChip][channel] * 0.9) + (convertedVoltage * 0.1);
+    //    }
+
+    //    neighVoltage += lpf_value[adcChip][channel];
+    //    Serial.print("neigh voltage in ADC function: ");
+    //    Serial.println(neighVoltage);
+
+    // Add a small delay if needed to ensure enough time for the conversion to complete
+    delay(50); // Example: delay by 10 milliseconds, adjust as needed
+  }
+}
+
+// -------------------------------------- MAIN UPDATE FUNCTION ------------------------------------------
+ExperimentData updateMotor(int motor) {
+  ExperimentData data; // Declare struct 'container'
+
+  // Initialize struct variables to avoid undefined values
+  data.ownVoltage = 0;
+  data.neighVoltage = 0;
+  data.local_err = 0;
+  data.local_err_after_actuation = 0;
+  data.diff_neigh = 0;
+  data.actuation_final = 0;
+
+  // update ADC readings before using them
+  if (millis() - adc_update_ts > 10) {  // was 50 in default
+    adc_update_ts = millis();
+
+    // No loop here, just handle the specific motor passed to the function
+    data.ownVoltage = 0;
+    data.neighVoltage = 0;
+
+    // Take own and neighbor voltage of the specified motor
+    read_adc_MOTOR(motor, data.ownVoltage, data.neighVoltage);
+    if ( DEBUG )Serial.println("\n");
+    if ( DEBUG )Serial.print("Motor ");
+    if ( DEBUG )Serial.print(motor);
+    if ( DEBUG )Serial.print(" Own Voltage: ");
+    if ( DEBUG )Serial.println(data.ownVoltage);
+    if ( DEBUG )Serial.print("Motor ");
+    if ( DEBUG )Serial.print(motor);
+    if ( DEBUG )Serial.print(" Neighbor Voltage: ");
+    if ( DEBUG )Serial.println(data.neighVoltage);
+
+    // Calculate the error to total voltage
+    data.local_err = local_demand - data.ownVoltage; //no longer defined as float since global
+    if ( DEBUG )Serial.println("\n");
+    if ( DEBUG )Serial.print("----------------> local error is: ");
+    if ( DEBUG )Serial.print(data.local_err);
+    if ( DEBUG )Serial.println("\n");
+
+    // Work out the difference with neighbor
+    data.diff_neigh = data.ownVoltage - data.neighVoltage; //no longer defined as float since global
+    if ( DEBUG )Serial.print("-----------------> Neighbour Difference is: ");
+    if ( DEBUG )Serial.print(data.diff_neigh);
+    if ( DEBUG )Serial.println("\n");
+
+    // work out if should move
+    if (micros() - step_us_ts[motor] > step_delay[motor]) {
+      // micros = time in microseconds since Arduino started (used for very short intervals),  step_us_ts = when last stepped, step_delay = how often should step
+      // if enough time has passed, then send step signal
+      step_us_ts[motor] = micros(); // updating the last step time, storing current time
+
+      // Working out actuation signal to send to motors depending on demand + neighbour
+      int actuation_signal_up = 0; // will carry the local + neighbour actuation for shortening
+      int actuation_signal_down = 0; // will carry the local + neighbour actuation for elongating
+
+      if (abs(data.local_err) < local_threshold) {
+        // stop moving
+        //actuation_signal_up = 0;
+        //actuation_signal_down = 0;
+        if ( DEBUG )Serial.print(motor);
+        if ( DEBUG )Serial.println(" LOCAL DEMAND ACHIEVED!");
+      } else if (data.local_err > 0) {
+        //moveStepsUp(motor, actuation_step * local_weight);
+        actuation_signal_up += (actuation_step * local_weight);
+        if ( DEBUG )Serial.print(motor);
+        if ( DEBUG )Serial.println(" Increases voltage to local");
+      } else {
+        //moveStepsDown(motor, actuation_step * local_weight);
+        actuation_signal_down += (actuation_step * local_weight);
+        if ( DEBUG )Serial.print(motor);
+        if ( DEBUG )Serial.println(" Decreases voltage to local");
+      }
+
+      // work out neighbour
+      if (neighbour_condition == -1) {  // Should be as close as possible
+        // Check if local error is within threshold
+        if (abs(data.diff_neigh) < neigh_threshold_converge) {
+          // stop moving
+          if ( DEBUG )Serial.print(motor);
+          if ( DEBUG )Serial.println(" NEIGH DEMAND ACHIEVED!");
+        } else if (data.diff_neigh > 0) {  // // M0 bigger than M1, decrease voltage to converge
+          actuation_signal_down += (actuation_step * neigh_weights[motor]);
+          if ( DEBUG )Serial.print(motor);
+          if ( DEBUG )Serial.print(" decreases voltage by "); 
+          if ( DEBUG )Serial.print(actuation_step * neigh_weights[motor]); 
+          if ( DEBUG )Serial.println(" to neigh");
+        } else {  // M0 smaller than M1, increase voltage to converge
+          actuation_signal_up += (actuation_step * neigh_weights[motor]);
+          if ( DEBUG )Serial.print(motor);
+          if ( DEBUG )Serial.print(" Increases voltage by "); 
+          if ( DEBUG )Serial.print(actuation_step * neigh_weights[motor]); 
+          if ( DEBUG )Serial.println(" to neigh");
+        }
+      } else if (neighbour_condition == 1) {  // Should be as different as possible (increase the difference)
+        // Check if the neighbour difference is within the allowable range
+        if (abs(data.diff_neigh) < neigh_threshold_diverge) {
+          if (data.diff_neigh > 0) { //M0 bigger than M1, keeps getting big
+            actuation_signal_up += (actuation_step * neigh_weights[motor]);  // keep shortening
+            if ( DEBUG )Serial.print(motor);
+            if ( DEBUG )Serial.println(" Increases voltage to diverge from neigh");
+          } else if (data.diff_neigh < 0) { // M0 smaller than M1, keeps getting small
+            actuation_signal_down += (actuation_step * neigh_weights[motor]);  // keep elongating
+            if ( DEBUG )Serial.print(motor);
+            if ( DEBUG )Serial.println(" Decreases voltage to diverge from neigh");
+          }
+        }
+        else if (abs(data.diff_neigh) > neigh_threshold_diverge) {
+          // Stop moving if the difference exceeds 200
+          if ( DEBUG )Serial.print(motor);
+          if ( DEBUG )Serial.println(" Neighbour difference too large, no more movement allowed");
+        }
+
+        else {
+          if ( DEBUG )Serial.println("Incorrect neigh_diff value for motor ");
+          if ( DEBUG )Serial.print(motor);
+        }
+      } else {
+        if ( DEBUG )Serial.print(motor);
+        if ( DEBUG )Serial.println(" INCORRECT NEIGHBOUR CONDITION");
+      }
+
+      // MOVE
+      data.actuation_final = actuation_signal_down - actuation_signal_up; // (elongate - shortening)
+
+      if (data.actuation_final > 0) {
+        moveStepsDown(motor, data.actuation_final); // elongates - increases voltage
+      } else if (data.actuation_final < 0) {
+        moveStepsUp(motor, abs(data.actuation_final)); // shortens - decreases voltage
+      } else {
+        if ( DEBUG )Serial.print(motor);
+        if ( DEBUG )Serial.println(" No movement needed, actuation = 0");
+      }
+
+      if ( DEBUG )Serial.print(motor);
+      if ( DEBUG )Serial.print(" FINAL ACTUATION: ");
+      if ( DEBUG )Serial.println(data.actuation_final); // if negative means shortens --> voltage increases
+
+      // update ADC readings
+      read_adc_MOTOR(motor, data.ownVoltage, data.neighVoltage);
+      data.newVoltage = data.ownVoltage;
+
+      // get the new error after actuation
+      data.local_err_after_actuation = local_demand - data.newVoltage;
+
+    } // end of check if can move
+  } // checking time for ADC reading
+
+  return data; // Return data for the specific motor requested
+}// end of function
