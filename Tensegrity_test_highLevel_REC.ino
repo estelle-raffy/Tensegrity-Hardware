@@ -111,7 +111,7 @@ void enableInterruptPin() {
 
 #define TEST_UPDATE_MS 10 // 6000 was default because used 6 motors??   
 #define DEFAULT_STEP_DELAY_US 350 // 150 was the fastest we can step a motor; 1800 was default ; 800 was used in check motors
-#define DEBUG false  
+#define DEBUG true  
 
 // How fast should we step the motors?
 // We control this by making the delay between
@@ -135,14 +135,15 @@ int dir_pin[6] = { 42, 24, 9, 41, 22, 23};
 int timeStep = 0;
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
-int local_demand = 4000; // 3700 not moving!
+int local_demand = 3800; // 3700 not moving!
 int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
-int neigh_threshold_converge = 10; // 40 based on data
+int neigh_threshold_converge = 40; // 40 based on data
 int neigh_threshold_diverge = 200;
 float local_integrated_error_motors[3] = {0.0, 0.0, 0.0}; // will serve as the 'old error' for the leakage
 float local_integrated_frustration_motors[3] = {0.0, 0.0, 0.0}; // cannot reach good local/neigh compromise will be integrated over time
 float local_frustration_threshold = 300; // since taking the absolute value of error, no need for min_value
 float local_recovery_threshold = 275; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float local_emotional_momentum = 2.5; // how sensitive to error/quickly frustrated? 0.5: slow, 2.5: quick, 1: reset 
 float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
 int actuation_step = 10; // allows to see the motor move, 1 was too small; default 10
 float local_weight = 1.0; // how much local affects bhv, 0 = OFF
@@ -161,6 +162,7 @@ float global_integrated_error = 0; // will serve as the 'old error' for the leak
 float global_integrated_frustration = 0; // cannot reach global target state threshold
 float global_frustration_threshold = 4000; // 4000 since taking the absolute value of error, no need for min_value
 float global_recovery_threshold = 3800; // 3800 lower to prevent oscillations at the frustration threshold, allows system to stabilize
+float global_emotional_momentum = 0.5; // how sensitive to error/quickly frustrated? 0.5: slow, 2.5: quick, 1: reset 
 float lambda_global = 0.2 ; // 1 = all the error leaks out!, want a slower leak for LT effect than local
 bool beingSelfish = true; // whether lower-system only focuses on local demand, if true, then turned OFF
 
@@ -250,7 +252,7 @@ void calibrate_all_adcs(int which) {
 void setup() {
 
   results_index = 0;
-  results_interval_ms = 426; // = 1 timestep ~426.248ms
+  results_interval_ms = 828; // = 1 timestep ~827.89ms
 
   // enable and configure each adc chip
   for ( int i = 0; i < 6; i++ ) {
@@ -561,7 +563,7 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
   if ( DEBUG )Serial.println("\n");
 
   // integrate the error
-  global_integrated_error = global_integrated_error + (global_error - (lambda_global * global_integrated_error)) * 1;
+  global_integrated_error = global_integrated_error + global_emotional_momentum * (global_error - (lambda_global * global_integrated_error)) * 1;
   // global_integrated_error = old error, declared globally
   // (lambda_global * global_integrated_error) = portion of old error to simulate 'leakage'
   // timestep = 1
@@ -569,7 +571,8 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
   if ( DEBUG )Serial.println(global_integrated_error);
 
   // update global_integrated_frustration
-  global_frustration_data.global_integrated_frustration += global_integrated_error;
+  global_integrated_frustration += global_integrated_error;
+  global_frustration_data.global_integrated_frustration = global_integrated_frustration;
   if ( DEBUG )Serial.print("GLOBAL FRUSTRATION LEVELS: ");
   if ( DEBUG )Serial.println(global_frustration_data.global_integrated_frustration);
 
@@ -600,6 +603,13 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
     neigh_weights[1] = reset_neigh_weights[1];
     neigh_weights[2] = reset_neigh_weights[2];
     beingSelfish = false; // Keeping/turning off selfishness function
+
+    // reset the frustration levels to 0 
+    global_integrated_error = 0; 
+    global_integrated_frustration = 0; 
+    global_frustration_data.global_integrated_frustration = global_integrated_frustration;
+    if ( DEBUG ) Serial.println("Threshold reached: Global Frustration level is reset");
+    
   }
   else {
     if ( DEBUG )Serial.println("Error global function");
@@ -615,6 +625,10 @@ ExperimentData global_function(float motor0_results, float motor1_results, float
   if ( DEBUG )Serial.print(global_frustration_data.motor1_weight);
   if ( DEBUG )Serial.print(", ");
   if ( DEBUG )Serial.println(global_frustration_data.motor2_weight);
+
+  //check the frustration levels 
+  if ( DEBUG )Serial.println("Checking frustration levels at end of function ---> what gets logged: ");
+  if ( DEBUG )Serial.println(global_frustration_data.global_integrated_frustration);
   return global_frustration_data;
 }
 
@@ -631,8 +645,9 @@ ExperimentData being_selfish(int motor, float new_local_err, float local_integra
 
   memset( &local_frustration_data, 0, sizeof( local_frustration_data) ); // initialize the entire structs to be full of zeros
  
-  local_integrated_error = local_integrated_error + ( new_local_err - (lambda_global * local_integrated_error));
-  local_frustration_data.local_integrated_frustration += local_integrated_error;
+  local_integrated_error = local_integrated_error + local_emotional_momentum * ( new_local_err - (lambda_global * local_integrated_error));
+  local_integrated_frustration += local_integrated_error; 
+  local_frustration_data.local_integrated_frustration += local_integrated_frustration;
 
   if ( DEBUG )Serial.print("Motor ");
   if ( DEBUG )Serial.print(motor);
@@ -671,6 +686,12 @@ ExperimentData being_selfish(int motor, float new_local_err, float local_integra
       if ( DEBUG )Serial.print(motor);
       if ( DEBUG )Serial.print(" plays selfish, neighbour weight: ");
       if ( DEBUG )Serial.println(local_frustration_data.neigh_weight);
+
+      // reset frustration level to 0 
+      local_integrated_error = 0;
+      local_integrated_frustration = 0; 
+      local_frustration_data.local_integrated_frustration = local_integrated_frustration;
+      if ( DEBUG )Serial.println("Threshold reached: Local Frustration level is reset");
     }
   }
   else {
@@ -883,6 +904,13 @@ ExperimentData updateMotor(int motor) {
       }
 
       // work out neighbour
+      if ( DEBUG )Serial.print("Neighbour Weights entering neighbour update are: ");
+      if ( DEBUG )Serial.print(neigh_weights[0]);
+      if ( DEBUG )Serial.print(", ");
+      if ( DEBUG )Serial.print(neigh_weights[1]);
+      if ( DEBUG )Serial.print(", ");
+      if ( DEBUG )Serial.println(neigh_weights[2]);
+      
       if (neighbour_condition == -1) {  // Should be as close as possible
         // Check if local error is within threshold
         if (abs(data.diff_neigh) < neigh_threshold_converge) {
