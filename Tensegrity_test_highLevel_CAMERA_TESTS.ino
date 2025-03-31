@@ -1,3 +1,6 @@
+// Gets & logs current positions of pink endcap fed by python script
+// Need to fix Serialport confict...
+
 // Records 35 MAXRESULTS (71% memory capacity) at interval 827.89ms (Timestep ~72 ), only 35 results = REC only half experiment...
 // 6000s / 827.89 = 72 but cannot collect 72 results (1/timestep), so will stop at 35. 
 // could work out a different interval: every 2 timestep: 6000/ 1656 = ~36, so longer interval may allow more results
