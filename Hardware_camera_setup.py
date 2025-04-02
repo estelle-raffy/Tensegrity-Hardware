@@ -6,9 +6,9 @@ import cv2
 import imutils
 import time
 
-# Define the lower and upper boundaries of the "pink" ball in HSV
-pinkLower = (140, 100, 100)  
-pinkUpper = (170, 255, 255)  
+# Define the lower and upper boundaries of the "pink" ball in HSL (adjust as needed)
+pinkLower = (150, 100, 50)  # Adjusted for HSL based on RGB (198, 55, 111)
+pinkUpper = (180, 255, 200)  # Adjusted for HSL based on RGB (198, 55, 111)
 
 # Buffer size for tracking points
 buffer_size = 32
@@ -17,15 +17,24 @@ counter = 0
 (dX, dY) = (0, 0)
 direction = ""
 
-# Start the webcam video stream
-print("[INFO] Starting video stream...")
-vs = VideoStream(src=0).start()
+# Start the video stream with Camera 1 (external camera)
+print("[INFO] Starting video stream from external camera...")
+vs = cv2.VideoCapture(0)  # Camera index 0 for external camera
+
+# Check if the camera is opened correctly
+if not vs.isOpened():
+    print("[ERROR] Could not open video stream from Camera 1.")
+    exit()
+
 time.sleep(2.0)  # Allow webcam to warm up
 
 # Main loop to process the video frames
 while True:
     # Capture frame from the webcam
-    frame = vs.read()
+    ret, frame = vs.read()
+    if not ret:
+        print("[ERROR] Failed to capture frame.")
+        break
     
     # Resize the frame for faster processing
     frame = imutils.resize(frame, width=600)
@@ -33,11 +42,11 @@ while True:
     # Apply Gaussian blur to reduce noise
     blurred = cv2.GaussianBlur(frame, (11, 11), 0)
     
-    # Convert the frame to HSV color space
-    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    # Convert the frame to HSL color space
+    hsl = cv2.cvtColor(blurred, cv2.COLOR_BGR2HLS)
 
     # Create a mask to detect only pink colors
-    mask = cv2.inRange(hsv, pinkLower, pinkUpper)
+    mask = cv2.inRange(hsl, pinkLower, pinkUpper)
     
     # Remove small noise (erosion + dilation)
     mask = cv2.erode(mask, None, iterations=2)
@@ -109,5 +118,5 @@ while True:
         break
 
 # Stop the video stream and close windows
-vs.stop()
+vs.release()
 cv2.destroyAllWindows()
