@@ -1,3 +1,8 @@
+## works with Camera_test_printing in Arduino IDE
+## sends error (euclidian distance to target, green cross) to Arduino script
+## Arduino has a single parsing function that reads and prints the error
+## Errors are read by Python and saved in Excel file --> whatever title 
+
 from collections import deque
 import numpy as np
 import cv2
