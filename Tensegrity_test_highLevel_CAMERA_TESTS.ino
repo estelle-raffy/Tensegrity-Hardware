@@ -1,5 +1,5 @@
 // Gets & logs current positions of pink endcap fed by python script
-// Need to fix Serialport confict...
+// **Need to fix** TIMING & EXCEL HANDLING 
 
 // Records 35 MAXRESULTS (71% memory capacity) at interval 827.89ms (Timestep ~72 ), only 35 results = REC only half experiment...
 // 6000s / 827.89 = 72 but cannot collect 72 results (1/timestep), so will stop at 35. 
@@ -32,7 +32,7 @@ struct ExperimentData {
   float diff_neigh;
   int actuation_final;
   float local_integrated_frustration;
-  float global_error;
+  float error_from_python;
   float global_integrated_frustration;
   float neigh_weight;
   float motor0_weight;
@@ -114,7 +114,7 @@ void enableInterruptPin() {
 
 #define TEST_UPDATE_MS 10 // 6000 was default because used 6 motors??   
 #define DEFAULT_STEP_DELAY_US 350 // 150 was the fastest we can step a motor; 1800 was default ; 800 was used in check motors
-#define DEBUG true  
+#define DEBUG false  
 
 // How fast should we step the motors?
 // We control this by making the delay between
@@ -156,12 +156,8 @@ int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
-// **************************************************** HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
-
-float target_X = 600; // from python data 
-float target_Y = 500; // from python data 
-float current_X = 0.0;
-float current_Y = 0.0;
+// **************************************************** HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS ************************** 
+float error_from_python = 0.0;
 int global_threshold = 100; // happiness range, depending on how stressed/relaxed needs to be
 float global_integrated_error = 0; // will serve as the 'old error' for the leakage
 float global_integrated_frustration = 0; // cannot reach global target state threshold
@@ -177,12 +173,10 @@ bool beingSelfish = true; // whether lower-system only focuses on local demand, 
 #define MAX_RESULTS 35 // agree with memory capacity (<75%),try to take as much as possible
 #define MOTOR_VARIABLES 10 // what variable tracking?
 #define FRUSTRATION_VARIABLES 4
-#define GLOBAL_TRACKING 5
 float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
 float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
-float frustration_results[MAX_RESULTS][FRUSTRATION_VARIABLES]; // global integrated frustration + neighbour weight
-float global_tracking_results[MAX_RESULTS][GLOBAL_TRACKING];
+float frustration_results[MAX_RESULTS][FRUSTRATION_VARIABLES]; // python error + integrated frustration + final weights 
 int results_index; // track position of results in array from 0 to MAX_RESULTS
 
 // State where motors should run/stop
@@ -247,9 +241,9 @@ void calibrate_all_adcs(int which) {
 
       } // end of calibrating
 
-      Serial.print("Calibration readings are: ");
-      Serial.print( adc_value[which][i] );
-      Serial.print(",");
+      if ( DEBUG )Serial.print("Calibration readings are: ");
+      if ( DEBUG )Serial.print( adc_value[which][i] );
+      if ( DEBUG )Serial.print(",");
     } // end of channel 0-3
 
   } // end of which < 6
@@ -308,6 +302,14 @@ void setup() {
   experiment_start_ts = millis();
   record_results_ts = millis();
   adc_update_ts = millis();
+
+
+  // Just for debugging, comment out!
+//  while( true ) {
+//    parseSerialPort();
+//    delay(10);
+//  }
+  
 }
 
 //==================================== MAIN LOOP ==============================================================
@@ -352,21 +354,19 @@ void loop() {
     if ( DEBUG ) Serial.println("\n");
     if ( DEBUG ) Serial.println("&&&&&&&&&&&&  Entering GLOBAL &&&&&&&&&&&");
 
-    // get current position of pink ball (X,Y)
-    parseCoordinates();
-    if ( DEBUG )Serial.print("Current X: ");
-    if ( DEBUG )Serial.print(current_X, 2);  // Print with 2 decimal places
-    if ( DEBUG )Serial.print(" Current Y: ");
-    if ( DEBUG )Serial.println(current_Y, 2);  // Print with 2 decimal places
+    // get current error from python (error to target position in space)
+    receiveErrorFromPython();
+    if ( DEBUG )Serial.print("Error from Python is: ");
+    if ( DEBUG )Serial.print(error_from_python, 2);  // Print with 2 decimal places
     
-    ExperimentData frustration_global = global_function(current_X, current_Y);
+    ExperimentData frustration_global = global_function(error_from_python);
     //frustration_results[results_index][2] = frustration_global.motor0_weight;
     //frustration_results[results_index][3] = frustration_global.motor1_weight;
     //frustration_results[results_index][4] = frustration_global.motor2_weight;
 
 
     unsigned long timeStep_ends = micros();
-    Serial.println(timeStep_ends - timeStep_starts);
+    if ( DEBUG ) Serial.println(timeStep_ends - timeStep_starts);
 
 
     unsigned long elapsed_time;
@@ -417,17 +417,12 @@ void loop() {
 
 
         // Store global frustration levels
-        frustration_results[results_index][0] = frustration_global.global_error;
+        frustration_results[results_index][0] = frustration_global.error_from_python;
         frustration_results[results_index][1] = frustration_global.global_integrated_frustration;
         frustration_results[results_index][2] = frustration_global.motor0_weight;
         frustration_results[results_index][3] = frustration_global.motor1_weight;
         frustration_results[results_index][4] = frustration_global.motor2_weight;
 
-        // Store global tracking results 
-        global_tracking_results[results_index][0] = target_X;
-        global_tracking_results[results_index][1] = target_Y;
-        global_tracking_results[results_index][2] = current_X;
-        global_tracking_results[results_index][3] = current_X;
         
         // Increment result index for next time.
         results_index++;
@@ -487,15 +482,7 @@ void loop() {
       Serial.print(",");
       Serial.print(motor0_results[result][9]); // Neighbour Weight for Motor 0
       Serial.print(",");
-      Serial.print(global_tracking_results[result][0]); // Target_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][1]); // Target_Y
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][2]); // Current_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][3]); // Current_Y
-      Serial.print(",");
-      Serial.print(frustration_results[result][0]); // Global Error
+      Serial.print(frustration_results[result][0]); // Global Error from python
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
@@ -527,15 +514,7 @@ void loop() {
       Serial.print(",");
       Serial.print(motor1_results[result][9]); // Neighbour Weight for Motor 1
       Serial.print(",");
-      Serial.print(global_tracking_results[result][0]); // Target_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][1]); // Target_Y
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][2]); // Current_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][3]); // Current_Y
-      Serial.print(",");
-      Serial.print(frustration_results[result][0]); // Global Error
+      Serial.print(frustration_results[result][0]); // Global Error from Python
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
@@ -566,15 +545,7 @@ void loop() {
       Serial.print(",");
       Serial.print(motor2_results[result][9]); // Neighbour Weight for Motor 2
       Serial.print(",");
-      Serial.print(global_tracking_results[result][0]); // Target_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][1]); // Target_Y
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][2]); // Current_X
-      Serial.print(",");
-      Serial.print(global_tracking_results[result][3]); // Current_Y
-      Serial.print(",");
-      Serial.print(frustration_results[result][0]); // Global Error
+      Serial.print(frustration_results[result][0]); // Global Error from Python
       Serial.print(",");
       Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
       Serial.print(",");
@@ -589,44 +560,36 @@ void loop() {
 
 // -------------------------------------- Higher-level functions ----------------------------------------------
 
-void parseCoordinates() {
+void receiveErrorFromPython() {
   if (Serial.available() > 0) {
-    // Read the incoming data from the serial buffer
+    // Read the incoming data from Python
     String input = Serial.readStringUntil('\n');  // Read until newline
-    int commaIndex = input.indexOf(',');  // Find the comma separating X and Y
+    input.trim();  // Remove any extra spaces or newline characters
 
-    // Extract the X and Y values from the string
-    if (commaIndex > 0) {
-      String xStr = input.substring(0, commaIndex);  // Extract X part
-      String yStr = input.substring(commaIndex + 1);  // Extract Y part
+    // Convert the received string to a float (error distance)
+    float received_error = input.toFloat();
 
-      // Convert the strings to floats and store them in X and Y
-      current_X = xStr.toFloat();
-      current_Y = yStr.toFloat();
+    // If valid (not NaN), store and print it
+    if (!isnan(received_error)) {
+      error_from_python = received_error;
+      Serial.println(error_from_python);
+    } else {
+      Serial.println("[Arduino] Invalid data received.");
     }
   }
 }
-
-ExperimentData global_function(float current_X, float current_Y) {
+ExperimentData global_function(float error_from_python) {
 
   ExperimentData global_frustration_data;
-
-  // print current state
-  if ( DEBUG )Serial.print("Current global state is ");
-  if ( DEBUG )Serial.print(current_X);
-  if ( DEBUG )Serial.print(", ");
-  if ( DEBUG )Serial.println(current_Y);
   
   // get the 'new' error
-  float global_error = sqrt(pow(target_X - current_X, 2) + pow(target_Y - current_Y, 2));
-  if ( DEBUG )Serial.println("\n");
   if ( DEBUG )Serial.print("------------------------------> Global error is ");
-  if ( DEBUG )Serial.println(global_error);
+  if ( DEBUG )Serial.println(error_from_python);
   if ( DEBUG )Serial.println("\n");
-  global_frustration_data.global_error = global_error;
+  global_frustration_data.error_from_python = error_from_python;
   
   // integrate the error
-  global_integrated_error = global_integrated_error + global_emotional_momentum * (global_error - (lambda_global * global_integrated_error)) * 1;
+  global_integrated_error = global_integrated_error + global_emotional_momentum * (error_from_python - (lambda_global * global_integrated_error)) * 1;
   // global_integrated_error = old error, declared globally
   // (lambda_global * global_integrated_error) = portion of old error to simulate 'leakage'
   // timestep = 1
@@ -640,7 +603,7 @@ ExperimentData global_function(float current_X, float current_Y) {
   if ( DEBUG )Serial.println(global_frustration_data.global_integrated_frustration);
 
   // WORK OUT WHAT TO DO
-  if (abs(global_error) < global_threshold) {
+  if (abs(error_from_python) < global_threshold) {
     // SUCCESS, higher-level doesn't need to do anything
     if ( DEBUG )Serial.println("GLOBAL SUCCESS ACHIEVED!");
   }
