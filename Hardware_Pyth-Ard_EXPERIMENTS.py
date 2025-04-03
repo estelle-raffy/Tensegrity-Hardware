@@ -1,3 +1,7 @@
+## NOT WORKING YET --> TIMING AND SAVING NEEDS ADJUSTING 
+## builds on the Camera scripts 
+## Sends error to Arduino ==> reads Serial monitor for all data ==> saves data in Excel
+
 from collections import deque 
 import numpy as np
 import cv2
