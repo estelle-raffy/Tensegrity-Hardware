@@ -114,7 +114,7 @@ void enableInterruptPin() {
 
 #define TEST_UPDATE_MS 10 // 6000 was default because used 6 motors??   
 #define DEFAULT_STEP_DELAY_US 350 // 150 was the fastest we can step a motor; 1800 was default ; 800 was used in check motors
-#define DEBUG false  
+#define DEBUG false   
 
 // How fast should we step the motors?
 // We control this by making the delay between
@@ -172,7 +172,7 @@ bool beingSelfish = true; // whether lower-system only focuses on local demand, 
 // like in simulation, we want to record variable for each module
 #define MAX_RESULTS 35 // agree with memory capacity (<75%),try to take as much as possible
 #define MOTOR_VARIABLES 10 // what variable tracking?
-#define FRUSTRATION_VARIABLES 4
+#define FRUSTRATION_VARIABLES 5
 float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
 float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
@@ -303,6 +303,7 @@ void setup() {
   record_results_ts = millis();
   adc_update_ts = millis();
 
+  //delay(90000); // takes camera ~90s to warm up
 
   // Just for debugging, comment out!
 //  while( true ) {
@@ -350,21 +351,24 @@ void loop() {
     ExperimentData motor2_frustration_local = being_selfish(2, motor2_data.local_err_after_actuation, local_integrated_error_motors[2], local_integrated_frustration_motors[2]);
     motor2_results[results_index][9] = motor2_frustration_local.neigh_weight;
 
-    // Global modulation
+    ///////////// GLOBAL modulation
     if ( DEBUG ) Serial.println("\n");
     if ( DEBUG ) Serial.println("&&&&&&&&&&&&  Entering GLOBAL &&&&&&&&&&&");
 
     // get current error from python (error to target position in space)
     receiveErrorFromPython();
-    if ( DEBUG )Serial.print("Error from Python is: ");
-    if ( DEBUG )Serial.print(error_from_python, 2);  // Print with 2 decimal places
+    if ( DEBUG )Serial.print("Error from Python function call in main loop is: ");
+    if ( DEBUG )Serial.println(error_from_python, 2);  // Print with 2 decimal places
     
     ExperimentData frustration_global = global_function(error_from_python);
-    //frustration_results[results_index][2] = frustration_global.motor0_weight;
+    frustration_results[results_index][0] = frustration_global.error_from_python;
+    if ( DEBUG )Serial.print("Error from Python after global call in main loop is: ");
+    if ( DEBUG )Serial.println(error_from_python, 2);
+    
     //frustration_results[results_index][3] = frustration_global.motor1_weight;
     //frustration_results[results_index][4] = frustration_global.motor2_weight;
 
-
+    
     unsigned long timeStep_ends = micros();
     if ( DEBUG ) Serial.println(timeStep_ends - timeStep_starts);
 
@@ -453,7 +457,7 @@ void loop() {
 
     // Loop through the results and print them
     int result;
-    Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Global Demand, Global Frustration, Gobal Neigh Weight");
+    Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Error Python, Global Frustration, Gobal Neigh Weight");
 
     for (result = 0; result < MAX_RESULTS; result++) {
       // Print the sample number, use result + 1 for 1-based indexing
@@ -561,6 +565,7 @@ void loop() {
 // -------------------------------------- Higher-level functions ----------------------------------------------
 
 void receiveErrorFromPython() {
+  // Check if there is data available in the serial buffer
   if (Serial.available() > 0) {
     // Read the incoming data from Python
     String input = Serial.readStringUntil('\n');  // Read until newline
@@ -572,12 +577,26 @@ void receiveErrorFromPython() {
     // If valid (not NaN), store and print it
     if (!isnan(received_error)) {
       error_from_python = received_error;
-      Serial.println(error_from_python);
+      if (DEBUG) {
+        Serial.print("[Arduino] Received error: ");
+        Serial.println(error_from_python);
+      }
     } else {
-      Serial.println("[Arduino] Invalid data received.");
+      // If the data is invalid (NaN), set error_from_python to a default value (e.g., 0)
+      error_from_python = 0.0;  // Default value when invalid data is received
+      if (DEBUG) {
+        Serial.println("[Arduino] Invalid data received, setting error to 0.");
+      }
+    }
+  } else {
+    // If no data is available from Python, set a default value (e.g., 0)
+    error_from_python = 0.0;  // Default value when no data is received
+    if (DEBUG) {
+      Serial.println("[Arduino] No data received, setting error to 0.");
     }
   }
 }
+
 ExperimentData global_function(float error_from_python) {
 
   ExperimentData global_frustration_data;
@@ -587,6 +606,7 @@ ExperimentData global_function(float error_from_python) {
   if ( DEBUG )Serial.println(error_from_python);
   if ( DEBUG )Serial.println("\n");
   global_frustration_data.error_from_python = error_from_python;
+  if ( DEBUG )Serial.println(global_frustration_data.error_from_python);
   
   // integrate the error
   global_integrated_error = global_integrated_error + global_emotional_momentum * (error_from_python - (lambda_global * global_integrated_error)) * 1;
