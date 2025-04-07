@@ -2,75 +2,94 @@
 ## builds on the Camera scripts 
 ## Sends error to Arduino ==> reads Serial monitor for all data ==> saves data in Excel
 
-from collections import deque 
+from collections import deque
 import numpy as np
 import cv2
 import imutils
 import time
-import serial  # Import pySerial for serial communication
+import serial
 import os
-import math  # For Euclidean distance calculation
-from openpyxl import Workbook  # For saving data to Excel
+import math
+from openpyxl import Workbook
 
 # Define the lower and upper boundaries of the "pink" ball in HSL
 pinkLower = (150, 100, 50)
 pinkUpper = (180, 255, 200)
 
-# Buffer size for tracking points
 buffer_size = 32
 pts = deque(maxlen=buffer_size)
-counter = 0
-direction = ""
 
 # File setup
 script_dir = os.path.dirname(os.path.abspath(__file__))
-excel_file_path = os.path.join(script_dir, 'ExperimentsResults_Arduino-Python.xlsx')
-length_log = []
+excel_file_path = os.path.join(script_dir, 'ExperimentsResults_Arduino-Python_tests.xlsx')
 
-# Establish serial connection to Arduino (update COM port)
+# Serial setup
 try:
-    ser = serial.Serial('COM7', 9600, timeout=1)  # Use correct port for your Arduino
-    time.sleep(2)  # Allow serial connection to initialize
+    ser = serial.Serial('COM7', 9600, timeout=1)
+    time.sleep(2)
 except serial.SerialException:
-    print("[ERROR] Could not open serial port. Check the connection.")
+    print("[ERROR] Could not open serial port.")
     ser = None
 
-# Start the video stream with Camera 0
-print("[INFO] Starting video stream from external camera...")
+# Video setup
+print("[INFO] Starting video stream from external camera...") # 0 is external, 1 is computer camera
 vs = cv2.VideoCapture(0)
 
-# Check if the camera is opened correctly
 if not vs.isOpened():
-    print("[ERROR] Could not open video stream from Camera 0.")
+    print("[ERROR] Could not open video stream.")
     exit()
 
-time.sleep(2.0)  # Allow webcam to warm up
+time.sleep(2.0)
 
-# Open Excel workbook
+# Excel setup
 wb = Workbook()
 ws = wb.active
-ws.append(['Sample_Number', 'Motor', 'Local_Demand', 'Own_Voltage', 'Neighbour_Voltage', 'Local_Error',
-           'Neighbour_Difference', 'Final_Actuation', 'New_Voltage', 'New_Error', 'Local_Frustration',
-           'Local_Neighbour_Weight', 'Global_Demand', 'Global_Frustration', 'Global_Neighbour_Weight'])  # Headers for all columns
+if ws.max_row == 1:
+    ws.append([ 
+        'Sample_Number', 'Motor', 'Local_Demand', 'Own_Voltage', 'Neighbour_Voltage',
+        'Local_Error', 'Neighbour_Difference', 'Final_Actuation', 'New_Voltage',
+        'New_Error', 'Local_Frustration', 'Local_Neighbour_Weight','Error_python', 'Global_Frustration',
+        'Global_Neighbour_Weight'
+    ])
 
-# Main loop to process the video frames
+# Main loop
 while True:
-    # === 1️⃣ Receive latest data from Arduino ===
-    if ser is not None and ser.in_waiting > 0:
-        arduino_data = ser.readline().decode('utf-8').strip()  # Read from Arduino
-        print(f"[Arduino] {arduino_data}")  # Debug print
+    # === 1️⃣ Receive all data from Arduino ===
+    if ser.in_waiting > 0:
+        try:
 
-        # === Parse the Arduino CSV Data ===
-        data_values = arduino_data.split(',')
-        if len(data_values) == 14:  # Expecting 14 values in each line (based on your Arduino code)
-            sample_number = data_values[0]
-            motor = data_values[1]
-            motor_data = data_values[2:]
+            ser.flush()
+            batch_data = []
 
-            # Write data to Excel for the current motor
-            ws.append([sample_number, motor] + motor_data)
+            print(f"[DEBUG] Buffer content before reading: {ser.read(ser.in_waiting)}")
+            time.sleep(0.1)
+                
+            while ser.in_waiting > 0:
+                raw_line = ser.readline().decode('utf-8').strip()
+                if raw_line:
+                    batch_data.append(raw_line)
+                else:
+                    print("[WARN] Empty line received.")
 
-    # === 2️⃣ Track position in video ===
+                # You could print how many bytes are waiting in the buffer for each iteration:
+                print(f"[DEBUG] Bytes waiting in buffer after read: {ser.in_waiting}")
+
+            if batch_data:
+                print(f"[DEBUG] Data received: {len(batch_data)} lines.")
+                for line in batch_data:
+                    #print(f"[RAW LINE]: {line}")
+                    print(f"[Sent to Excel] {line}")
+                    ws.append([line])  # Append each line to the Excel sheet
+            else:
+                print("[WARN] No data received.")
+                
+        except Exception as e:
+            print(f"[ERROR] Failed to read data: {e}")
+    else:
+        print("[DEBUG] No data in buffer, waiting for new data...")
+        time.sleep(0.1)
+
+    # === 2️⃣ Camera tracking ===
     ret, frame = vs.read()
     if not ret:
         print("[ERROR] Failed to capture frame.")
@@ -87,9 +106,8 @@ while True:
     cnts = imutils.grab_contours(cnts)
     center = None
 
-    # === 3️⃣ Get Object Position and Compute Error ===
-    frame_height, frame_width, _ = frame.shape  # Get frame size
-    target_x, target_y = frame_width // 2, frame_height // 2  # Center position (target)
+    frame_height, frame_width, _ = frame.shape
+    target_x, target_y = frame_width // 2, frame_height // 2
 
     if len(cnts) > 0:
         c = max(cnts, key=cv2.contourArea)
@@ -102,36 +120,33 @@ while True:
             cv2.circle(frame, center, 5, (0, 0, 255), -1)
             pts.appendleft(center)
 
-            # Compute Euclidean error distance
             error_distance = math.sqrt((target_x - center[0])**2 + (target_y - center[1])**2)
             print(f"[Computed Error] Distance: {error_distance:.2f} pixels")
 
-            # === 4️⃣ Send error to Arduino ===
             if ser is not None:
                 error_msg = f"{error_distance:.2f}\n"
-                ser.write(error_msg.encode())  # Send error to Arduino
+                ser.write(error_msg.encode())
+                ser.flush()
                 print(f"[Sent to Arduino] {error_msg.strip()}")
 
-    # === 5️⃣ Draw Virtual Target at Center ===
-    cross_size = 20  # Length of cross arms in pixels
-    cross_color = (0, 255, 0)  # Green color
-    thickness = 2  # Line thickness
+    # === 3️⃣ Draw target cross ===
+    cross_size = 20
+    cross_color = (0, 255, 0)
+    thickness = 2
 
     cv2.line(frame, (target_x - cross_size, target_y), (target_x + cross_size, target_y), cross_color, thickness)
     cv2.line(frame, (target_x, target_y - cross_size), (target_x, target_y + cross_size), cross_color, thickness)
     cv2.putText(frame, "Target", (target_x + 10, target_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, cross_color, 2)
 
-    # Show video output
     cv2.imshow("Tracking", frame)
 
-    # === 6️⃣ Exit on 'q' press ===
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# === 7️⃣ Cleanup ===
+# === 4️⃣ Cleanup ===
 vs.release()
 cv2.destroyAllWindows()
 if ser is not None:
-    ser.close()  # Close serial connection
-wb.save(excel_file_path)  # Save results to Excel
+    ser.close()
+wb.save(excel_file_path)
 print("[INFO] Experiment finished. Data saved to Excel.")
