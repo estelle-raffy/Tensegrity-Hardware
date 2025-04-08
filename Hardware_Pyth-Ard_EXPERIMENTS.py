@@ -1,5 +1,4 @@
-## NOT WORKING YET --> TIMING AND SAVING NEEDS ADJUSTING 
-## builds on the Camera scripts 
+## Builds on the Camera scripts 
 ## Sends error to Arduino ==> reads Serial monitor for all data ==> saves data in Excel
 
 from collections import deque
@@ -54,18 +53,22 @@ if ws.max_row == 1:
 
 # Main loop
 while True:
+    
     # === 1️⃣ Receive all data from Arduino ===
     if ser.in_waiting > 0:
+        print( " capture triggered")
+        
         try:
 
-            ser.flush()
+            #ser.flush()
             batch_data = []
 
             print(f"[DEBUG] Buffer content before reading: {ser.read(ser.in_waiting)}")
             time.sleep(0.1)
                 
             while ser.in_waiting > 0:
-                raw_line = ser.readline().decode('utf-8').strip()
+                print("going to process ", ser.in_waiting)
+                raw_line = ser.readline().decode('utf-8').strip() # looking for the \n
                 if raw_line:
                     batch_data.append(raw_line)
                 else:
@@ -78,7 +81,7 @@ while True:
                 print(f"[DEBUG] Data received: {len(batch_data)} lines.")
                 for line in batch_data:
                     #print(f"[RAW LINE]: {line}")
-                    print(f"[Sent to Excel] {line}")
+                    print(f"[Sent to Excel] {line}:")
                     ws.append([line])  # Append each line to the Excel sheet
             else:
                 print("[WARN] No data received.")
