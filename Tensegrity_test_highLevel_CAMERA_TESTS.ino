@@ -1,5 +1,4 @@
 // Gets & logs current positions of pink endcap fed by python script
-// **Need to fix** TIMING & EXCEL HANDLING 
 
 // Records 35 MAXRESULTS (71% memory capacity) at interval 827.89ms (Timestep ~72 ), only 35 results = REC only half experiment...
 // 6000s / 827.89 = 72 but cannot collect 72 results (1/timestep), so will stop at 35. 
@@ -299,12 +298,15 @@ void setup() {
 
   Serial.begin(9600);
 
+
+  delay(90000); // takes camera ~90s to warm up
+
+
+
   experiment_start_ts = millis();
   record_results_ts = millis();
   adc_update_ts = millis();
-
-  //delay(90000); // takes camera ~90s to warm up
-
+  
   // Just for debugging, comment out!
 //  while( true ) {
 //    parseSerialPort();
@@ -557,7 +559,7 @@ void loop() {
       Serial.print("\n");  // Newline after Motor 2
     }
     // A delay to allow time for copying results
-    delay(3000);
+    //delay(3000);
   }
 }
 //==================================== END MAIN LOOP =========================================================
