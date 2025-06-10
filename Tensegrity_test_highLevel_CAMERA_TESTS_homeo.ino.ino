@@ -1,5 +1,6 @@
-// Gets & logs current positions of pink endcap fed by python script
+// ONLY MODIFIED THE GROWTH STATE RETURN HERE TO DEBUG, IF NOT WORKING, SPECIAL MODULE SCRIPT NEEDS UPDATING 
 
+// Gets & logs current positions of pink endcap fed by python script
 // Records 35 MAXRESULTS (71% memory capacity) at interval 827.89ms (Timestep ~72 ), only 35 results = REC only half experiment...
 // 6000s / 827.89 = 72 but cannot collect 72 results (1/timestep), so will stop at 35.
 // could work out a different interval: every 2 timestep: 6000/ 1656 = ~36, so longer interval may allow more results
@@ -46,6 +47,7 @@ struct ExperimentData {
   float motor1_weight;
   float motor2_weight;
   float global_weight;
+  int growth_state;
 };
 
 const int cs_pin[6]    = {10, 11, 17, 16, 15, 14}; // pins for ADC, check pins 10 and 11 actually work!
@@ -156,9 +158,9 @@ int add_homeo = 0 ; // Wb regulation + Wc regulation + strategy confidence
 // $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ CONTROL STRATEGIES $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 // **************************************************** LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
-int local_demand = 3500; // 3700 not moving!
+int local_demand = 3900; // 3700 not moving!
 int local_threshold = 100; // goes with 3700. can be adjusted to serve as a happiness range
-int neigh_threshold_converge = 1; // 40 based on data
+int neigh_threshold_converge = 50; // 40 based on data
 int neigh_threshold_diverge = 200;
 float local_integrated_error_motors[3] = {0.0, 0.0, 0.0}; // will serve as the 'old error' for the leakage
 float local_integrated_frustration_motors[3] = {0.0, 0.0, 0.0}; // cannot reach good local/neigh compromise will be integrated over time
@@ -187,7 +189,7 @@ float global_frustration_threshold = 12000; // since taking the absolute value o
 float global_recovery_threshold = 1000; // lower to prevent oscillations at the frustration threshold, allows system to stabilize
 float global_emotional_momentum = 0.5; // how sensitive to error/quickly frustrated? 0.5: slow, 2.5: quick, 1: reset
 float lambda_global = 0.2 ; // 1 = all the error leaks out!, want a slower leak for LT effect than local
-bool beingSelfish = true; // whether lower-system only focuses on local demand, if true, then turned OFF
+bool beingSelfish = false; // whether lower-system only focuses on local demand, if true, then turned OFF
 
 // **************************************************** END OF HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
@@ -195,10 +197,12 @@ bool beingSelfish = true; // whether lower-system only focuses on local demand, 
 #define MAX_RESULTS 35 // agree with memory capacity (<75%),try to take as much as possible
 #define MOTOR_VARIABLES 10 // what variable tracking?
 #define FRUSTRATION_VARIABLES 6
+#define SPECIAL_MODULE_VARIABLES 1 // special actuation is given same as normal modules
 float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
 float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
 float frustration_results[MAX_RESULTS][FRUSTRATION_VARIABLES]; // python error + integrated frustration + final weights + M3 actuation
+float special_module_results[MAX_RESULTS][SPECIAL_MODULE_VARIABLES];
 int results_index; // track position of results in array from 0 to MAX_RESULTS
 
 // State where motors should run/stop
@@ -324,7 +328,7 @@ void setup() {
   Serial.begin(9600);
 
 
-  //delay(90000); // takes camera ~90s to warm up, don't put after experiment_start or won't be any data left (00000)!
+  delay(90000); // takes camera ~90s to warm up, don't put after experiment_start or won't be any data left (00000)!
 
 
 
@@ -361,6 +365,7 @@ void loop() {
     motor0_results[results_index][3] = motor0_data.local_err_after_actuation; // local error of M0 for selfishness
     ExperimentData motor0_frustration_local = being_selfish(0, motor0_data.local_err_after_actuation);
     motor0_results[results_index][9] = motor0_frustration_local.neigh_weight; // get the local neigh weight from selfishness
+    //Serial.println(neigh_weights[0]);
 
     ///////////// MOTOR 1 UPDATE  = special agent
 
@@ -394,8 +399,8 @@ void loop() {
     if ( DEBUG )Serial.println(error_from_python, 2);
 
     /////// ENTERING SPECIAL MODULE FUNCTION
-    actuation_final = special_module_function(1, error_from_python);
-    frustration_results[results_index][5] = actuation_final;
+    ExperimentData special_module = special_module_function(1, error_from_python);
+    special_module_results[results_index][0] = special_module.growth_state;
 
     //frustration_results[results_index][3] = frustration_global.motor1_weight;
     //frustration_results[results_index][4] = frustration_global.motor2_weight;
@@ -426,6 +431,7 @@ void loop() {
         motor0_results[results_index][7] = motor0_data.local_err_after_actuation;
         motor0_results[results_index][8] = motor0_frustration_local.local_integrated_frustration;
         motor0_results[results_index][9] = motor0_frustration_local.neigh_weight;
+        //Serial.println(motor0_results[results_index][9]);
 
         // Store motor 1 results
         motor1_results[results_index][0] = 0;
@@ -433,7 +439,7 @@ void loop() {
         motor1_results[results_index][2] = 0;
         motor1_results[results_index][3] = 0;
         motor1_results[results_index][4] = 0;
-        motor1_results[results_index][5] = actuation_final;
+        motor1_results[results_index][5] = actuation_final; // accessing global variable to keep 10 results index, could have returned it from function 
         motor1_results[results_index][6] = 0;
         motor1_results[results_index][7] = 0;
         motor1_results[results_index][8] = 0;
@@ -459,6 +465,10 @@ void loop() {
         frustration_results[results_index][3] = frustration_global.motor1_weight;
         frustration_results[results_index][4] = frustration_global.motor2_weight;
         frustration_results[results_index][5] = frustration_global.global_weight; // then return it via frustration_global.
+
+        // store variables from special module
+        special_module_results[results_index][0] = growth_state;
+        
 
         // Increment result index for next time.
         results_index++;
@@ -493,7 +503,7 @@ void loop() {
 
       // Loop through the results and print them
       int result;
-      Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Error Python, Global Frustration, Gobal Neigh Weight, Global Weight");
+      Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Error Python, Growth State, Global Frustration, Gobal Neigh Weight, Global Weight");
 
       for (result = 0; result < MAX_RESULTS; result++) {
         // Print the sample number, use result + 1 for 1-based indexing
@@ -523,6 +533,8 @@ void loop() {
         Serial.print(motor0_results[result][9]); // Neighbour Weight for Motor 0
         Serial.print(",");
         Serial.print(frustration_results[result][0]); // Global Error from python
+        Serial.print(",");
+        Serial.print(special_module_results[result][0]); // Growth state
         Serial.print(",");
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
@@ -558,6 +570,8 @@ void loop() {
         Serial.print(",");
         Serial.print(frustration_results[result][0]); // Global Error from Python
         Serial.print(",");
+        Serial.print(special_module_results[result][0]); // Growth state
+        Serial.print(",");
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
         Serial.print(frustration_results[result][3]); // Neighbour weight (higher-level function)
@@ -590,6 +604,8 @@ void loop() {
         Serial.print(motor2_results[result][9]); // Neighbour Weight for Motor 2
         Serial.print(",");
         Serial.print(frustration_results[result][0]); // Global Error from Python
+        Serial.print(",");
+        Serial.print(special_module_results[result][0]); // Growth state
         Serial.print(",");
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
@@ -735,7 +751,7 @@ ExperimentData being_selfish(int motor, float new_local_err) { //
   // local_frustration_data.???? = 0;
   // local_frustration_data.???? = 0;
 
-  memset( &local_frustration_data, 0, sizeof( local_frustration_data) ); // initialize the entire structs to be full of zeros
+  //memset( &local_frustration_data, 0, sizeof( local_frustration_data) ); // initialize the entire structs to be full of zeros
 
   local_integrated_error_motors[motor] = local_integrated_error_motors[motor] + local_emotional_momentum * ( new_local_err - (lambda_global * local_integrated_error_motors[motor]));
   local_integrated_frustration_motors[motor] += local_integrated_error_motors[motor];
@@ -792,7 +808,7 @@ ExperimentData being_selfish(int motor, float new_local_err) { //
     local_frustration_data.neigh_weight = neigh_weights[motor];
     if ( DEBUG )Serial.print(motor);
     if ( DEBUG )Serial.print(" Selfish function disabled, neighbour weight: ");
-    if ( DEBUG )Serial.print(local_frustration_data.neigh_weight);
+    if ( DEBUG )Serial.println(local_frustration_data.neigh_weight);
   }
   return local_frustration_data;
 }
@@ -1006,10 +1022,10 @@ ExperimentData updateMotor(int motor) {
       if ( DEBUG )Serial.print(", ");
       if ( DEBUG )Serial.println(neigh_weights[2]);
 
-      Serial.print("before neighbour block: ");
-      Serial.print(actuation_signal_up);
-      Serial.print(", ");
-      Serial.println(actuation_signal_down);
+//      Serial.print("before neighbour block: ");
+//      Serial.print(actuation_signal_up);
+//      Serial.print(", ");
+//      Serial.println(actuation_signal_down);
 
       //------------- only execute this if add_neighbour is on! --------------------
 
@@ -1062,13 +1078,13 @@ ExperimentData updateMotor(int motor) {
         }
       } // end of add_neighbour
       else{
-        Serial.println("NEIGHBOUR CONDITION NOT MET");
+        if ( DEBUG )Serial.println("NEIGHBOUR CONDITION NOT MET");
       }
 
-      Serial.println("after neighbour block: ");
-      Serial.print(actuation_signal_up);
-      Serial.print(", ");
-      Serial.print(actuation_signal_down);
+//      Serial.println("after neighbour block: ");
+//      Serial.print(actuation_signal_up);
+//      Serial.print(", ");
+//      Serial.print(actuation_signal_down);
       
       // MOVE
       data.actuation_final = actuation_signal_down - actuation_signal_up; // (elongate - shortening)
@@ -1100,8 +1116,12 @@ ExperimentData updateMotor(int motor) {
 }// end of function
 
 
-float special_module_function(int motor, float error_from_python) {
+ExperimentData special_module_function(int motor, float error_from_python) {
 
+  ExperimentData special_module; 
+  special_module.actuation_final = 0;
+
+  
   if ( DEBUG )Serial.println("\n");
   if ( DEBUG )Serial.println("ENTERING SPECIAL MODULE FUNCTION");
   if ( DEBUG )Serial.println("\n");
@@ -1129,7 +1149,6 @@ float special_module_function(int motor, float error_from_python) {
 
   // prepare for movement
   float global_adj = global_weight * actuation_step;
-  actuation_final = 0; // make sure starts at 0 to return right values
   int actuation_signal_up = 0;
   int actuation_signal_down = 0;
 
@@ -1195,11 +1214,13 @@ float special_module_function(int motor, float error_from_python) {
 
   // MOVE the motor!
   actuation_final = actuation_signal_down - actuation_signal_up;
-  if (actuation_final > 0) {
+  special_module.actuation_final = actuation_final;
+  
+  if (special_module.actuation_final > 0) {
     moveStepsDown(motor, actuation_final); // elongates - increases voltage
   }
-  else if (actuation_final < 0) {
-    moveStepsUp(motor, abs(actuation_final));
+  else if (special_module.actuation_final < 0) {
+    moveStepsUp(motor, abs(special_module.actuation_final));
   }
   else {
     if ( DEBUG )Serial.println(motor);
@@ -1207,7 +1228,9 @@ float special_module_function(int motor, float error_from_python) {
   }
 
   if ( DEBUG )Serial.println("M3 actuation final: ");
-  if ( DEBUG )Serial.println(actuation_final);
+  if ( DEBUG )Serial.println(special_module.actuation_final);
 
-  return actuation_final;
+  special_module.growth_state = growth_state; // log any changes to growth state
+
+  return special_module;
 } // end of function
