@@ -163,7 +163,7 @@ float local_recovery_threshold = 275; // lower to prevent oscillations at the fr
 float local_emotional_momentum = 2.5; // how sensitive to error/quickly frustrated? 0.5: slow, 2.5: quick, 1: reset
 float lambda_local = 0.8 ;// 1 = all the error leaks out!, want a faster leak for ST effect, LT for global so lower values
 int actuation_step = 100; // allows to see the motor move, 1 was too small; default 10
-float local_weight = 0; // how much local affects bhv, 0 = OFF
+float local_weight = 1; // how much local affects bhv, 0 = OFF
 float neigh_weights[3] = {1, 1, 1}; // neigh influence, 0 = OFF; for each motor will be changed by selfish and pass through global check
 float reset_neigh_weights[3] = {1, 1, 1}; // when global check turns off selfish --> reset neigh_weights to 1
 int neighbour_condition = -1; // -1 same voltage; 1 different voltage
