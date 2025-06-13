@@ -180,7 +180,7 @@ bool beingSelfish = true; // whether lower-system only focuses on local demand, 
 // like in simulation, we want to record variable for each module
 #define MAX_RESULTS 25 // agree with memory capacity (<75%),try to take as much as possible
 #define MOTOR_VARIABLES 10 // what variable tracking?
-#define FRUSTRATION_VARIABLES 5
+#define FRUSTRATION_VARIABLES 6
 float motor0_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 1 results
 float motor1_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 2 results
 float motor2_results[MAX_RESULTS][MOTOR_VARIABLES]; // Motor 3 results
@@ -442,6 +442,8 @@ void loop() {
         frustration_results[results_index][2] = frustration_global.motor0_weight;
         frustration_results[results_index][3] = frustration_global.motor1_weight;
         frustration_results[results_index][4] = frustration_global.motor2_weight;
+        frustration_results[results_index][5] = growth_state;
+
 
 
         // Increment result index for next time.
@@ -477,7 +479,7 @@ void loop() {
 
       // Loop through the results and print them
       int result;
-      Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Local Neigh Weight, Error Python, Global Frustration, Gobal Neigh Weight");
+      Serial.println("Sample, Motor, Local Demand, Own Voltage, Neigh Voltage, Local Error, Neigh Difference, Final Actuation, New Voltage, New error, Local Frustration, Weight, Error Python, Global Frustration, Gobal Neigh Weight, Growth State");
 
       for (result = 0; result < MAX_RESULTS; result++) {
         // Print the sample number, use result + 1 for 1-based indexing
@@ -511,6 +513,8 @@ void loop() {
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
         Serial.print(frustration_results[result][2]); // Neighbour weight Motor 0 (higher-level function)
+        Serial.print(",");
+        Serial.print(frustration_results[result][5]); // GROWTH STATE 
         Serial.print("\n");  // Newline after Motor
 
 
@@ -543,6 +547,8 @@ void loop() {
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
         Serial.print(frustration_results[result][3]); // Neighbour weight (higher-level function)
+        Serial.print(",");
+        Serial.print(frustration_results[result][5]); // GROWTH STATE
         Serial.print("\n");  // Newline after Motor 1
 
         // Motor 2 Data (same sample number)
@@ -574,6 +580,8 @@ void loop() {
         Serial.print(frustration_results[result][1]); // Global frustration (higher-level function)
         Serial.print(",");
         Serial.print(frustration_results[result][4]); // Neighbour weight (higher-level function)
+        Serial.print(",");
+        Serial.print(frustration_results[result][5]); // GROWTH STATE
         Serial.print("\n");  // Newline after Motor 2
       }
     }
