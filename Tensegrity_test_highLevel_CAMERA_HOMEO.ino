@@ -171,7 +171,7 @@ int neighbour_condition = -1; // -1 same voltage; 1 different voltage
 // **************************************************** END OF LOWER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
 
 // **************************************************** HIGHER-LEVEL VARIABLES, WEIGHTS, PARAMETERS **************************
-float error_from_python = 1000;
+float error_from_python = 0;
 float prev_error = 0.0;
 int growth_state = 1;
 float global_weight = 1;
@@ -379,7 +379,7 @@ void loop() {
     if ( DEBUG ) Serial.println("&&&&&&&&&&&&  Entering GLOBAL &&&&&&&&&&&");
 
     // get current error from python (error to target position in space)
-    //receiveErrorFromPython();
+    receiveErrorFromPython();
     if ( DEBUG )Serial.print("Error from Python function call in main loop is: ");
     if ( DEBUG )Serial.println(error_from_python, 2);  // Print with 2 decimal places
 
